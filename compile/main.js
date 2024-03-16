@@ -33,9 +33,7 @@ var Tag = {
   REPEATING: 281,
   MODULE: 282,
   GS: 283,
-  AE: 284,
-  INC: 285,
-  DEC: 286
+  AE: 284
 }
 
 class Token {
@@ -176,10 +174,10 @@ class Lexer {
         else return new Token('>');
       case '-':
         if (this.readch('>')) return Word.gs;
-        else if (this.peek == '-') return new Word("--", Tag.POSTFIX);
+        else if (this.peek == '-') return new Token("--", Tag.POSTFIX);
         else return new Token('-');
       case '+':
-        if (this.readch('+')) return new Word("++", Tag.POSTFIX);
+        if (this.readch('+')) return new Token("++", Tag.POSTFIX);
         else return new Token('+');
     }
     if (this.isUnquotedStringStart()) {
@@ -331,7 +329,7 @@ class ASTNode {
 }
 
 class Stmt extends ASTNode {
-  constructor() { super(); this.after = 0 }
+  constructor() { super(); this.after = 0; this.useLabel = 0 }
   static Null = new Stmt();
   static Enclosing = Stmt.Null;
   gen(b, a) { }
@@ -340,6 +338,7 @@ class Stmt extends ASTNode {
 class If extends Stmt {
   constructor(x, s) {
     super();
+    this.useLabel = 1;
     this.expr = x;
     this.stmt = s;
     if (x.type != Type.Bool) x.error("boolean required in if")
@@ -356,6 +355,7 @@ class If extends Stmt {
 class Else extends Stmt {
   constructor(x, s1, s2) {
     super();
+    this.useLabel = 1;
     this.expr = x;
     this.stmt1 = s1;
     this.stmt2 = s2;
@@ -375,7 +375,7 @@ class Else extends Stmt {
 }
 
 class While extends Stmt {
-  constructor() { super(); this.expr = null; this.stmt = null; }
+  constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
 
   init(x, s) {
     this.expr = x;
@@ -394,7 +394,7 @@ class While extends Stmt {
 }
 
 class Do extends Stmt {
-  constructor() { super(); this.expr = null; this.stmt = null; }
+  constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
 
   init(s, x) {
     this.expr = x;
@@ -444,7 +444,7 @@ class Break extends Stmt {
 
 class Expr extends Stmt {
   constructor(t, p) { super(); this.op = t; this.type = p; }
-  genN() { return this } // Gen as an inline expr
+  genRightSide() { return this } // Gen as an inline expr
   gen() { return this.toString() }  // Gen as a stmt
   reduce() { return this }
   jumping(t, f) { this.emitjumps(this.toString(), t, f) }
@@ -468,7 +468,7 @@ class Id extends Expr {
 class Op extends Expr {
   constructor(tok, p) { super(tok, p) }
   reduce() {
-    var x = this.genN()  // = this
+    var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
     this.emit(t.toString() + " = " + x.toString());
     return t
@@ -484,7 +484,7 @@ class Arith extends Op {
     if (this.type == void 0) this.error("type error")
   }
 
-  genN() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
+  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }
 
@@ -496,8 +496,23 @@ class Unary extends Op {
     if (this.type == void 0) this.error("type error")
   }
 
-  genN() { return new Unary(this.op, this.expr.reduce()) }
+  genRightSide() { return new Unary(this.op, this.expr.reduce()) }
   toString() { return this.op.toString() + " " + this.expr.toString() }
+}
+
+class Prefix extends Unary {
+  constructor(tok, x) {
+    super(tok, x);
+    if (!x instanceof Id) this.error("Invalid left-hand side expression in prefix operation");
+  }
+
+  genRightSide() {
+
+  }
+
+  reduce() {
+
+  }
 }
 
 class Temp extends Expr {
@@ -528,17 +543,11 @@ class AssignExpr extends Expr {
     if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
   }
 
-  check(p1, p2) {
-    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
-    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
-    else return void 0
-  }
-
   gen() {
-    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
+    this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString())
   }
 
-  genN() {
+  genRightSide() {
     this.gen();
     return this.id
   }
@@ -561,17 +570,11 @@ class CompoundAssignExpr extends AssignExpr {
     super(i, x);
   }
 
-  check(p1, p2) {
-    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
-    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
-    else return void 0
-  }
-
   gen() {
-    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
+    this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString())
   }
 
-  genN() {
+  genRightSide() {
     this.gen();
     return this.id
   }
@@ -597,7 +600,7 @@ class VanillaCmd extends Expr {
 
   gen() { return this.emit(this.cmd.toString()) }
   reduce() {
-    var x = this.genN()  // = this
+    var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
     this.emit(t.toString() + " = " + x.toString());
     return t
@@ -735,7 +738,7 @@ class Parser {
   CPStmts() {
     if (this.look.tag == '}') return Stmt.Null;
     else if (this.look.tag == Tag.EOF) return Stmt.Null;
-    else return new Seq(this.stmt(), this.stmts())
+    else return new Seq(this.CPStmt(), this.CPStmts())
   }
 
   CPStmt() {
@@ -918,7 +921,11 @@ class Parser {
       this.move(); return new Unary(Word.minus, this.unary())
     } else if (this.look.tag == "!") {
       var tok = this.look; this.move(); return new Not(tok, this.unary())
-    } else if (this.look.tag == Tag.POSTFIX);
+    } else if (this.look.tag == "++" || this.look.tag == "--") {
+      var tok = this.look; this.move();
+      if (this.look.tag == Tag.ID) return new Prefix(tok, this.unary());
+      else this.error("Invalid left-hand side expression in prefix operation");
+    }
     else return this.factor();
   }
 
@@ -926,7 +933,7 @@ class Parser {
     var x = void 0;
     switch (this.look.tag) {
       case '(':
-        this.move(), x = this.bool(), this.match(')');
+        this.move(), x = this.assign(), this.match(')');
         return x;
       case Tag.NUM:
         x = new Constant(this.look, Type.Int);
@@ -948,7 +955,6 @@ class Parser {
         var s = this.look.toString();
         var id = this.top.get(this.look);
         if (id == void 0) this.error(s + " undeclared");
-        //id = this.assign(id);
         this.move();
         return id;
       case Tag.VANICMD:
@@ -956,13 +962,11 @@ class Parser {
         this.move();
         return new VanillaCmd(s);
       default:
-        this.error("syntax error");
+        this.error("Syntax error: Unexpected " + this.look.tag);
         return x;
     }
   }
 }
-
-//str = fs.readFileSync("./compile/test", "utf8");
 
 function run() {
   var str = document.getElementById("input").value;
