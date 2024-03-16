@@ -144,12 +144,6 @@ class Lexer {
     return !0
   }
 
-  isch(c) {
-    if (this.peek != c) return !1;
-    this.peek = " ";
-    return !0
-  }
-
   scan() {
     // 跳过空白
     for (; this.canRead(); this.readch()) {
@@ -167,7 +161,7 @@ class Lexer {
         else return new Token('|');
       case '=':
         if (this.readch('=')) return Word.eq;
-        if (this.isch('>')) return Word.ex;
+        if (this.peek == ">") return Word.ex;
         else return new Token('=');
       case '!':
         if (this.readch('=')) return Word.ne;
@@ -180,22 +174,11 @@ class Lexer {
         else return new Token('>');
       case '-':
         if (this.readch('>')) return Word.gs;
-        else if (this.isch('-')) return new Token("--");
-        else if (this.isch('=')) return new Token("-=");
+        else if (this.peek == '-') return new Token("--", Tag.POSTFIX);
         else return new Token('-');
       case '+':
-        if (this.readch('+')) return new Token("++");
-        else if (this.isch('=')) return new Token("+=");
+        if (this.readch('+')) return new Token("++", Tag.POSTFIX);
         else return new Token('+');
-      case '*':
-        if (this.readch('=')) return new Token("*=");
-        else return new Token('*');
-      case '/':
-        if (this.readch('=')) return new Token("/=");
-        else return new Token('/');
-      case '%':
-        if (this.readch('=')) return new Token("%=");
-        else return new Token('%');
     }
     if (this.isUnquotedStringStart()) {
       var b = this.readStringUnquoted();
@@ -591,13 +574,10 @@ class AssignExpr extends Expr {
 class CompoundAssignExpr extends AssignExpr {
   constructor(i, x, op) {
     super(i, x);
-    this.op = new Token(op.tag.replace("=", ""));
   }
 
   gen() {
-    var t = new Temp(this.type);
-    this.emit(t.toString() + " = " + this.expr.genRightSide().toString());
-    this.emit(this.id.toString() + " = " + this.id.toString() + " " + this.op.toString() + " " + t.toString())
+    this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString())
   }
 
   genRightSide() {
@@ -814,7 +794,7 @@ class Parser {
     this.used += p.width;
     if (this.look.tag == ';') {
       this.match(";");
-      return new AssignExpr(id, new Constant(new NumericLiteral(0)));
+      return Stmt.Null
     } else if (this.look.tag == '=') {
       this.move();
       var stmt = new AssignExpr(id, this.assign());
@@ -889,7 +869,7 @@ class Parser {
         } else this.error("Syntax error: Invalid left-hand side in assignment")
       case "+=": case "-=": case "*=": case "/=": case "%=":
         if (x.op.tag == Tag.ID) {
-          this.move();
+          this.match("=");
           return new CompoundAssignExpr(x, this.assign(), tok);
         } else this.error("Syntax error: Invalid left-hand side in assignment")
       default:
