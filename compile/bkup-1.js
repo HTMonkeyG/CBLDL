@@ -24,7 +24,7 @@ var Tag = {
   TRUE: 274,
   WHILE: 275,
 
-  EOF: 0xFFFF,
+  EOF: 0xffff,
   VANICMD: 276,
   STRING: 277,
   SELECTOR: 278,
@@ -33,9 +33,7 @@ var Tag = {
   REPEATING: 281,
   MODULE: 282,
   GS: 283,
-  AE: 284,
-  INC: 285,
-  DEC: 286
+  AE: 284
 }
 
 class Token {
@@ -153,7 +151,6 @@ class Lexer {
       else if (this.peek === "\n") Lexer.line += 1;
       else break;
     }
-
     switch (this.peek) {
       case '&':
         if (this.readch('&')) return Word.and;
@@ -163,7 +160,7 @@ class Lexer {
         else return new Token('|');
       case '=':
         if (this.readch('=')) return Word.eq;
-        if (this.peek == ">") return Word.ex;
+        if (this.readch('>')) return Word.ex;
         else return new Token('=');
       case '!':
         if (this.readch('=')) return Word.ne;
@@ -176,11 +173,7 @@ class Lexer {
         else return new Token('>');
       case '-':
         if (this.readch('>')) return Word.gs;
-        else if (this.peek == '-') return new Word("--", Tag.POSTFIX);
         else return new Token('-');
-      case '+':
-        if (this.readch('+')) return new Word("++", Tag.POSTFIX);
-        else return new Token('+');
     }
     if (this.isUnquotedStringStart()) {
       var b = this.readStringUnquoted();
@@ -411,6 +404,25 @@ class Do extends Stmt {
   }
 }
 
+class AssignExpr extends Stmt {
+  constructor(i, x) {
+    super();
+    this.id = i;
+    this.expr = x;
+    if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
+  }
+
+  check(p1, p2) {
+    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
+    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
+    else return void 0
+  }
+
+  gen(b, a) {
+    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
+  }
+}
+
 class Seq extends Stmt {
   constructor(s1, s2) {
     super();
@@ -444,8 +456,8 @@ class Break extends Stmt {
 
 class Expr extends Stmt {
   constructor(t, p) { super(); this.op = t; this.type = p; }
-  genN() { return this } // Gen as an inline expr
-  gen() { return this.toString() }  // Gen as a stmt
+  genN() { return this }
+  gen() { return this.toString() }
   reduce() { return this }
   jumping(t, f) { this.emitjumps(this.toString(), t, f) }
   emitjumps(test, t, f) {
@@ -501,7 +513,7 @@ class Unary extends Op {
 }
 
 class Temp extends Expr {
-  constructor(p) { super(Word.temp, p); this.number = ++Temp.count }
+  constructor(p) { Temp.count = 0; super(Word.temp, p); this.number = ++Temp.count }
   toString() { return "t" + this.number }
 }
 
@@ -517,75 +529,6 @@ class Constant extends Expr {
   jumping(t, f) {
     if (this == Constant.True && t != 0) this.emit("goto L" + t);
     if (this == Constant.False && f != 0) this.emit("goto L" + f);
-  }
-}
-
-class AssignExpr extends Expr {
-  constructor(i, x) {
-    super(void 0, x.type);
-    this.id = i;
-    this.expr = x;
-    if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
-  }
-
-  check(p1, p2) {
-    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
-    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
-    else return void 0
-  }
-
-  gen() {
-    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
-  }
-
-  genN() {
-    this.gen();
-    return this.id
-  }
-
-  reduce() {
-    var x = this.id
-      , t = new Temp(this.type);
-    this.gen();
-    this.emit(t.toString() + " = " + x.toString());
-    return t
-  }
-
-  toString() {
-    return this.id.toString() + " = " + this.expr.toString()
-  }
-}
-
-class CompoundAssignExpr extends AssignExpr {
-  constructor(i, x, op) {
-    super(i, x);
-  }
-
-  check(p1, p2) {
-    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
-    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
-    else return void 0
-  }
-
-  gen() {
-    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
-  }
-
-  genN() {
-    this.gen();
-    return this.id
-  }
-
-  reduce() {
-    var x = this.id
-      , t = new Temp(this.type);
-    this.gen();
-    this.emit(t.toString() + " = " + x.toString());
-    return t
-  }
-
-  toString() {
-    return this.id.toString() + " = " + this.expr.toString()
   }
 }
 
@@ -690,11 +633,11 @@ class Parser {
   }
 
   move() { this.look = this.lex.scan(); }
-  error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
+  error(s) { throw new Error("near line " + Lexer.line + ":" + s) }
 
   match(t) {
     if (this.look.tag == t) this.move();
-    else this.error("Syntax error")
+    else this.error("syntax error")
   }
 
   program() {
@@ -739,7 +682,7 @@ class Parser {
   }
 
   CPStmt() {
-    var x, s1, s2;
+    var x, s, s1, s2, savedStmt;
     switch (this.look.tag) {
       case ';':
         this.move();
@@ -776,7 +719,7 @@ class Parser {
   }
 
   decl() {
-    // D -> type ID [= E]
+    // D -> type ID
     var p = this.type();
     var tok = this.look;
     this.match(Tag.ID);
@@ -788,7 +731,7 @@ class Parser {
       return Stmt.Null
     } else if (this.look.tag == '=') {
       this.move();
-      var stmt = new AssignExpr(id, this.assign());
+      var stmt = new AssignExpr(id, this.bool());
       this.match(";");
       return stmt
     }
@@ -843,22 +786,45 @@ class Parser {
         return this.block();
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD: case Tag.ID: case Tag.NUM:
+      case Tag.VANICMD:
+        return this.bool();
+      case Tag.ID:
         return this.assign();
-      //return this.assign();
       default:
         this.error("Syntax error: Unexpected " + this.look.tag)
     }
   }
 
+  primaryExpr() {
+    var stmt, t = this.look;
+    this.match(Tag.ID);
+    var id = this.top.get(t);
+    if (id == void 0) this.error(t.toString() + " undeclared");
+    if (this.look.tag == '=') { // S -> id = E
+      this.move();
+      stmt = new AssignExpr(id, this.bool());
+    } else {
+      while (this.look.tag == Tag.OR) {
+        var tok = this.look; this.move(); x = new Or(tok, x, this.join())
+      }
+      return x
+    }
+    //this.error("Syntax error: Unexpected " + this.look.tag)
+    this.match(";");
+    return stmt
+  }
+
   assign() {
-    var x = this.bool();
-    if (this.look.tag == '=')
-      if (x.op.tag == Tag.ID) {
-        this.match("=");
-        return new AssignExpr(x, this.assign());
-      } else this.error("Syntax error: Invalid left-hand side in assignment")
-    else return x
+    var stmt, t = this.look;
+    this.match(Tag.ID);
+    var id = this.top.get(t);
+    if (id == void 0) this.error(t.toString() + " undeclared");
+    if (this.look.tag == '=') { // S -> id = E
+      this.move();
+      stmt = new AssignExpr(id, this.bool());
+    } else this.error("Syntax error: Unexpected " + this.look.tag)
+    this.match(";");
+    return stmt
   }
 
   bool() {
@@ -918,8 +884,7 @@ class Parser {
       this.move(); return new Unary(Word.minus, this.unary())
     } else if (this.look.tag == "!") {
       var tok = this.look; this.move(); return new Not(tok, this.unary())
-    } else if (this.look.tag == Tag.POSTFIX);
-    else return this.factor();
+    } else return this.factor();
   }
 
   factor() {
@@ -968,7 +933,6 @@ function run() {
   var str = document.getElementById("input").value;
   Token.uid = 0;
   ASTNode.labels = 0;
-  Temp.count = 0;
   var lex = new Lexer(str);
   var parse = new Parser(lex);
   parse.program();
