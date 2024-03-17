@@ -122,9 +122,6 @@ class Lexer {
     this.reserve(Word.False);
     this.reserve(Word.True);
     this.reserve(Type.Int);
-    this.reserve(Type.String);
-    this.reserve(Type.Selector);
-    this.reserve(Type.Vector);
   }
 
   readNext() {
