@@ -25,6 +25,7 @@ var Tag = {
   WHILE: 275,
 
   EOF: 0xFFFF,
+  LF: 0xFFFE,
   VANICMD: 276,
   STRING: 277,
   SELECTOR: 278,
@@ -36,6 +37,10 @@ var Tag = {
   AE: 284
 }
 
+class TAC {
+
+}
+
 class Token {
   constructor(t) { this.tag = t; this.uid = Token.uid++; }
   static EOF = new Token(Tag.EOF);
@@ -43,27 +48,10 @@ class Token {
   static uid = 0;
 }
 
-class NumericLiteral extends Token {
-  constructor(v) { super(Tag.NUM); this.value = v }
-
-  toString() { return this.value.toString() }
-}
-
-class StringLiteral extends Token {
-  constructor(v) { super(Tag.STRING); this.value = v }
-
-  toString() { return this.value }
-}
-
-class VaniCmdLiteral extends Token {
-  constructor(v) { super(Tag.VANICMD); this.cmd = v }
-
-  toString() { return "`" + this.cmd + "`" }
-}
-
-class SelectorLiteral extends Token {
-  constructor(v) { super(Tag.SELECTOR); this.value = v }
-}
+class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
+class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return this.value } }
+class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
+class SelectorLiteral extends Token { constructor(v) { super(Tag.SELECTOR); this.value = v } }
 
 class Word extends Token {
   constructor(s, t) {
@@ -71,9 +59,7 @@ class Word extends Token {
     this.lexeme = s
   }
 
-  toString() {
-    return this.lexeme
-  }
+  toString() { return this.lexeme }
 
   static and = new Word("&&", Tag.AND);
   static or = new Word("||", Tag.OR);
@@ -90,17 +76,9 @@ class Word extends Token {
 }
 
 class HashTable {
-  constructor() {
-    this.KV = {}
-  }
-
-  put(k, v) {
-    this.KV[k] = v;
-  }
-
-  get(k) {
-    return this.KV[k]
-  }
+  constructor() { this.KV = {} }
+  put(k, v) { this.KV[k] = v; }
+  get(k) { return this.KV[k] }
 }
 
 class Lexer {
@@ -132,13 +110,9 @@ class Lexer {
     return this.str[this.ptr++]
   }
 
-  canRead() {
-    return this.ptr <= this.str.length
-  }
+  canRead() { return this.ptr <= this.str.length }
 
-  reserve(w) {
-    this.words.put(w.lexeme, w)
-  }
+  reserve(w) { this.words.put(w.lexeme, w) }
 
   readch(c) {
     this.peek = this.readNext();
@@ -300,9 +274,7 @@ class Env {
     this.prev = n;
   }
 
-  put(w, i) {
-    this.table.put(w.uid, i)
-  }
+  put(w, i) { this.table.put(w.uid, i) }
 
   get(w) {
     for (var i = this; i != void 0; i = i.prev) {
@@ -337,6 +309,13 @@ class Type extends Word {
     else if (p1 == Type.Int || p2 == Type.Int) return Type.Int;
     else return Type.Char
   }
+
+  // 类型转换
+  static toBoolean(x) {
+    if (x.type != Type.Bool)
+      return new Rel(Word.ne, x, new Constant(new NumericLiteral(0)))
+    else return x;
+  }
 }
 
 class ASTNode {
@@ -361,7 +340,7 @@ class If extends Stmt {
     this.useLabel = 1;
     this.expr = x;
     this.stmt = s;
-    if (x.type != Type.Bool) x.error("boolean required in if")
+    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -379,7 +358,7 @@ class Else extends Stmt {
     this.expr = x;
     this.stmt1 = s1;
     this.stmt2 = s2;
-    if (x.type != Type.Bool) x.error("boolean required in if")
+    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -400,7 +379,7 @@ class While extends Stmt {
   init(x, s) {
     this.expr = x;
     this.stmt = s;
-    if (this.expr.type != Type.Bool) this.expr.error("Boolean required in while")
+    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -419,7 +398,7 @@ class Do extends Stmt {
   init(s, x) {
     this.expr = x;
     this.stmt = s;
-    if (this.expr.type != Type.Bool) this.expr.error("Boolean required in while")
+    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -875,7 +854,7 @@ class Parser {
         return this.block();
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD: case Tag.ID: case Tag.NUM:
+      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING:
         return this.assign();
       default:
         this.error("Syntax error: Unexpected " + this.look.tag)
