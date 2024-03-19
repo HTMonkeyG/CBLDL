@@ -323,7 +323,7 @@ class Type extends Word {
 class ASTNode {
   constructor() { this.lexline = Lexer.line; this.labels = 0; }
   static labels = 0;
-  error(s) { throw new Error("near line " + Lexer.line + ": " + s) }
+  error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
   newlabel() { return ++ASTNode.labels }
   emitlabel(i) { Parser.append("L" + i + ":") }
   emit(s) { Parser.append("\t" + s + "\n") }
@@ -342,10 +342,14 @@ class If extends Stmt {
     this.useLabel = 1;
     this.expr = x;
     this.stmt = s;
-    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
+    /*var label = this.newlabel(); // stmt代码标号
+    this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
+    this.emitlabel(label);
+    this.stmt.gen(label, a)*/
     var label = this.newlabel(); // stmt代码标号
     this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
     this.emitlabel(label);
@@ -360,7 +364,7 @@ class Else extends Stmt {
     this.expr = x;
     this.stmt1 = s1;
     this.stmt2 = s2;
-    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -381,7 +385,7 @@ class While extends Stmt {
   init(x, s) {
     this.expr = x;
     this.stmt = s;
-    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -400,7 +404,7 @@ class Do extends Stmt {
   init(s, x) {
     this.expr = x;
     this.stmt = s;
-    if (x.type != Type.Bool) this.expr = Type.toBoolean(x);
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -559,10 +563,7 @@ class AssignExpr extends Expr {
   genRightSide() { this.gen(); return this.id }
   toString() { return this.id.toString() + " = " + this.expr.toString() }
   reduce() {
-    /*var x = this.id
-      , t = new Temp(this.type);*/
     this.gen();
-    //this.emit(t.toString() + " = " + x.toString());
     return this.id
   }
 }
@@ -604,6 +605,7 @@ class Selector extends Expr {
     this.emit(t.toString() + " = num(" + this.toString() + ")");
     return t
   }
+  jumping(t, f) { this.emitjumps(this.toString(), t, f) }
   genRightSide() { return this.reduce() }
   toString() { return this.sel.toString() }
 }
@@ -843,7 +845,9 @@ class Parser {
       case Tag.BASIC:
         return this.decl();
       case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING:
-        return this.assign();
+        x = this.assign();
+        this.match(';');
+        return x;
       default:
         this.error("Syntax error: Unexpected " + this.look.tag)
     }

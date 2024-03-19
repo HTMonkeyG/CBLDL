@@ -24,7 +24,8 @@ var Tag = {
   TRUE: 274,
   WHILE: 275,
 
-  EOF: 0xffff,
+  EOF: 0xFFFF,
+  LF: 0xFFFE,
   VANICMD: 276,
   STRING: 277,
   SELECTOR: 278,
@@ -36,6 +37,10 @@ var Tag = {
   AE: 284
 }
 
+class TAC {
+
+}
+
 class Token {
   constructor(t) { this.tag = t; this.uid = Token.uid++; }
   static EOF = new Token(Tag.EOF);
@@ -43,27 +48,10 @@ class Token {
   static uid = 0;
 }
 
-class NumericLiteral extends Token {
-  constructor(v) { super(Tag.NUM); this.value = v }
-
-  toString() { return this.value.toString() }
-}
-
-class StringLiteral extends Token {
-  constructor(v) { super(Tag.STRING); this.value = v }
-
-  toString() { return this.value }
-}
-
-class VaniCmdLiteral extends Token {
-  constructor(v) { super(Tag.VANICMD); this.cmd = v }
-
-  toString() { return "`" + this.cmd + "`" }
-}
-
-class SelectorLiteral extends Token {
-  constructor(v) { super(Tag.SELECTOR); this.value = v }
-}
+class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
+class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
+class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
+class SelectorLiteral extends Token { constructor(v) { super(Tag.SELECTOR); this.value = v } toString() { return this.value } }
 
 class Word extends Token {
   constructor(s, t) {
@@ -71,9 +59,7 @@ class Word extends Token {
     this.lexeme = s
   }
 
-  toString() {
-    return this.lexeme
-  }
+  toString() { return this.lexeme }
 
   static and = new Word("&&", Tag.AND);
   static or = new Word("||", Tag.OR);
@@ -90,17 +76,9 @@ class Word extends Token {
 }
 
 class HashTable {
-  constructor() {
-    this.KV = {}
-  }
-
-  put(k, v) {
-    this.KV[k] = v;
-  }
-
-  get(k) {
-    return this.KV[k]
-  }
+  constructor() { this.KV = {} }
+  put(k, v) { this.KV[k] = v; }
+  get(k) { return this.KV[k] }
 }
 
 class Lexer {
@@ -122,6 +100,9 @@ class Lexer {
     this.reserve(Word.False);
     this.reserve(Word.True);
     this.reserve(Type.Int);
+    this.reserve(Type.String);
+    this.reserve(Type.Selector);
+    this.reserve(Type.Vector);
   }
 
   readNext() {
@@ -129,16 +110,18 @@ class Lexer {
     return this.str[this.ptr++]
   }
 
-  canRead() {
-    return this.ptr <= this.str.length
-  }
+  canRead() { return this.ptr <= this.str.length }
 
-  reserve(w) {
-    this.words.put(w.lexeme, w)
-  }
+  reserve(w) { this.words.put(w.lexeme, w) }
 
   readch(c) {
     this.peek = this.readNext();
+    if (this.peek != c) return !1;
+    this.peek = " ";
+    return !0
+  }
+
+  isch(c) {
     if (this.peek != c) return !1;
     this.peek = " ";
     return !0
@@ -151,6 +134,7 @@ class Lexer {
       else if (this.peek === "\n") Lexer.line += 1;
       else break;
     }
+
     switch (this.peek) {
       case '&':
         if (this.readch('&')) return Word.and;
@@ -160,7 +144,7 @@ class Lexer {
         else return new Token('|');
       case '=':
         if (this.readch('=')) return Word.eq;
-        if (this.readch('>')) return Word.ex;
+        if (this.isch('>')) return Word.ex;
         else return new Token('=');
       case '!':
         if (this.readch('=')) return Word.ne;
@@ -173,7 +157,22 @@ class Lexer {
         else return new Token('>');
       case '-':
         if (this.readch('>')) return Word.gs;
+        else if (this.isch('-')) return new Token("--");
+        else if (this.isch('=')) return new Token("-=");
         else return new Token('-');
+      case '+':
+        if (this.readch('+')) return new Token("++");
+        else if (this.isch('=')) return new Token("+=");
+        else return new Token('+');
+      case '*':
+        if (this.readch('=')) return new Token("*=");
+        else return new Token('*');
+      case '/':
+        if (this.readch('=')) return new Token("/=");
+        else return new Token('/');
+      case '%':
+        if (this.readch('=')) return new Token("%=");
+        else return new Token('%');
     }
     if (this.isUnquotedStringStart()) {
       var b = this.readStringUnquoted();
@@ -275,9 +274,7 @@ class Env {
     this.prev = n;
   }
 
-  put(w, i) {
-    this.table.put(w.uid, i)
-  }
+  put(w, i) { this.table.put(w.uid, i) }
 
   get(w) {
     for (var i = this; i != void 0; i = i.prev) {
@@ -301,30 +298,39 @@ class Type extends Word {
   static Selector = new Type("sel", Tag.BASIC, 0);
 
   static numeric(p) {
-    if (p == Type.Char || p == Type.Int || p == Type.Float) return !0;
+    if (p == Type.Int || p == Type.Vector) return !0;
     else return !1
   }
 
   // 类型转换
   static max(p1, p2) {
-    if (!this.numeric(p1) || !this.numeric(p2)) return void 0;
-    else if (p1 == Type.Float || p2 == Type.Float) return Type.Float;
-    else if (p1 == Type.Int || p2 == Type.Int) return Type.Int;
-    else return Type.Char
+    if (p1 == p2) return p1;
+    else if (p1 == Type.Int && p2 == Type.Vector) return Type.Int;
+    else if (p2 == Type.Int && p1 == Type.Vector) return Type.Int;
+    else if (p1 == Type.Selector && p2 == Type.Vector) return Type.Int;
+    else if (p2 == Type.Selector && p1 == Type.Vector) return Type.Int;
+    else return void 0;
+  }
+
+  // 类型转换
+  static toBoolean(x) {
+    if (x.type == Type.Int || x.type == Type.Vector || x.type == Type.Selector)
+      return new Rel(Word.ne, x, new Constant(new NumericLiteral(0)))
+    else return x;
   }
 }
 
 class ASTNode {
   constructor() { this.lexline = Lexer.line; this.labels = 0; }
   static labels = 0;
-  error(s) { throw new Error("near line " + Lexer.line + ": " + s) }
+  error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
   newlabel() { return ++ASTNode.labels }
   emitlabel(i) { Parser.append("L" + i + ":") }
   emit(s) { Parser.append("\t" + s + "\n") }
 }
 
 class Stmt extends ASTNode {
-  constructor() { super(); this.after = 0 }
+  constructor() { super(); this.after = 0; this.useLabel = 0 }
   static Null = new Stmt();
   static Enclosing = Stmt.Null;
   gen(b, a) { }
@@ -333,12 +339,17 @@ class Stmt extends ASTNode {
 class If extends Stmt {
   constructor(x, s) {
     super();
+    this.useLabel = 1;
     this.expr = x;
     this.stmt = s;
-    if (x.type != Type.Bool) x.error("boolean required in if")
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
+    /*var label = this.newlabel(); // stmt代码标号
+    this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
+    this.emitlabel(label);
+    this.stmt.gen(label, a)*/
     var label = this.newlabel(); // stmt代码标号
     this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
     this.emitlabel(label);
@@ -349,10 +360,11 @@ class If extends Stmt {
 class Else extends Stmt {
   constructor(x, s1, s2) {
     super();
+    this.useLabel = 1;
     this.expr = x;
     this.stmt1 = s1;
     this.stmt2 = s2;
-    if (x.type != Type.Bool) x.error("boolean required in if")
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -368,12 +380,12 @@ class Else extends Stmt {
 }
 
 class While extends Stmt {
-  constructor() { super(); this.expr = null; this.stmt = null; }
+  constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
 
   init(x, s) {
     this.expr = x;
     this.stmt = s;
-    if (this.expr.type != Type.Bool) this.expr.error("Boolean required in while")
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -387,12 +399,12 @@ class While extends Stmt {
 }
 
 class Do extends Stmt {
-  constructor() { super(); this.expr = null; this.stmt = null; }
+  constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
 
   init(s, x) {
     this.expr = x;
     this.stmt = s;
-    if (this.expr.type != Type.Bool) this.expr.error("Boolean required in while")
+    if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
 
   gen(b, a) {
@@ -401,25 +413,6 @@ class Do extends Stmt {
     this.stmt.gen(b, label);
     this.emitlabel(label);
     this.expr.jumping(b, 0);
-  }
-}
-
-class AssignExpr extends Stmt {
-  constructor(i, x) {
-    super();
-    this.id = i;
-    this.expr = x;
-    if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
-  }
-
-  check(p1, p2) {
-    if (Type.numeric(p1) && Type.numeric(p2)) return p2;
-    else if (p1 == Type.Bool && p2 == Type.Bool) return p2;
-    else return void 0
-  }
-
-  gen(b, a) {
-    this.emit(this.id.toString() + " = " + this.expr.genN().toString())
   }
 }
 
@@ -456,8 +449,8 @@ class Break extends Stmt {
 
 class Expr extends Stmt {
   constructor(t, p) { super(); this.op = t; this.type = p; }
-  genN() { return this }
-  gen() { return this.toString() }
+  genRightSide() { return this } // Gen as an inline expr
+  gen() { return this.toString() }  // Gen as a stmt
   reduce() { return this }
   jumping(t, f) { this.emitjumps(this.toString(), t, f) }
   emitjumps(test, t, f) {
@@ -472,15 +465,12 @@ class Expr extends Stmt {
   toString() { return this.op.toString() }
 }
 
-class Id extends Expr {
-  constructor(id, p, b) { super(id, p); this.offset = b }
-  // offset为相对地址
-}
+class Id extends Expr { constructor(id, p, b) { super(id, p); this.offset = b }/* offset为相对地址 */ }
 
 class Op extends Expr {
   constructor(tok, p) { super(tok, p) }
   reduce() {
-    var x = this.genN()  // = this
+    var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
     this.emit(t.toString() + " = " + x.toString());
     return t
@@ -493,11 +483,23 @@ class Arith extends Op {
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = Type.max(x1.type, x2.type);
-    if (this.type == void 0) this.error("type error")
+    if (this.type == void 0) this.error("Type error")
   }
-
-  genN() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
+  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
+}
+
+class GetScore extends Op {
+  constructor(tok, x1, x2) {
+    super(tok, void 0);
+    this.scb = x1;
+    this.target = x2;
+    this.type = Type.Vector;
+    if (x1.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x1.type.lexeme);
+    if (x2.type != Type.String && x2.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x2.type.lexeme);
+  }
+  genRightSide() { return new GetScore(this.op, this.scb.reduce(), this.target) }
+  toString() { return this.scb.toString() + " " + this.op.toString() + " " + this.target.toString() }
 }
 
 class Unary extends Op {
@@ -505,15 +507,29 @@ class Unary extends Op {
     super(tok, void 0);
     this.expr = x;
     this.type = Type.max(Type.Int, x.type);
-    if (this.type == void 0) this.error("type error")
+    if (this.type == void 0) this.error("Type mismatch")
   }
-
-  genN() { return new Unary(this.op, this.expr.reduce()) }
+  genRightSide() { return new Unary(this.op, this.expr.reduce()) }
   toString() { return this.op.toString() + " " + this.expr.toString() }
 }
 
+class Prefix extends Unary {
+  constructor(tok, x) {
+    super(tok, x);
+    if (!x instanceof Id) this.error("Invalid left-hand side expression in prefix operation");
+  }
+
+  genRightSide() {
+
+  }
+
+  reduce() {
+
+  }
+}
+
 class Temp extends Expr {
-  constructor(p) { Temp.count = 0; super(Word.temp, p); this.number = ++Temp.count }
+  constructor(p) { super(Word.temp, p); this.number = ++Temp.count }
   toString() { return "t" + this.number }
 }
 
@@ -522,13 +538,45 @@ class Constant extends Expr {
     if (b) super(a, b);
     else super(new NumericLiteral(a), Type.Int)
   }
-
   static True = new Constant(Word.True, Type.Bool);
   static False = new Constant(Word.False, Type.Bool);
-
   jumping(t, f) {
     if (this == Constant.True && t != 0) this.emit("goto L" + t);
     if (this == Constant.False && f != 0) this.emit("goto L" + f);
+  }
+}
+
+class AssignExpr extends Expr {
+  constructor(i, x) {
+    super(void 0, x.type);
+    this.id = i;
+    this.expr = x;
+    if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
+  }
+  check(p1, p2) {
+    if (p1 == p2) return p2;
+    else if (p1 == Type.Int && p2 == Type.Selector) return p1;
+    else if (p1 == Type.Int && p2 == Type.Vector) return p1;
+    else return void 0
+  }
+  gen() { this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString()) }
+  genRightSide() { this.gen(); return this.id }
+  toString() { return this.id.toString() + " = " + this.expr.toString() }
+  reduce() {
+    this.gen();
+    return this.id
+  }
+}
+
+class CompoundAssignExpr extends AssignExpr {
+  constructor(i, x, op) {
+    super(i, x);
+    this.op = new Token(op.tag.replace("=", ""));
+  }
+  gen() {
+    var t = new Temp(this.type);
+    this.emit(t.toString() + " = " + this.expr.genRightSide().toString());
+    this.emit(this.id.toString() + " = " + this.id.toString() + " " + this.op.toString() + " " + t.toString())
   }
 }
 
@@ -537,15 +585,29 @@ class VanillaCmd extends Expr {
     super(tok, Type.Int);
     this.cmd = tok;
   }
-
-  gen() { return this.emit(this.cmd.toString()) }
+  gen() { this.emit(this.cmd.toString()) }
+  toString() { return this.cmd.toString() }
   reduce() {
-    var x = this.genN()  // = this
+    var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
     this.emit(t.toString() + " = " + x.toString());
     return t
   }
-  toString() { return this.cmd.toString() }
+}
+
+class Selector extends Expr {
+  constructor(tok) {
+    super(tok, Type.Selector);
+    this.sel = tok;
+  }
+  reduce() {
+    var t = new Temp(this.type);
+    this.emit(t.toString() + " = num(" + this.toString() + ")");
+    return t
+  }
+  jumping(t, f) { this.emitjumps(this.toString(), t, f) }
+  genRightSide() { return this.reduce() }
+  toString() { return this.sel.toString() }
 }
 
 class Logical extends Expr {
@@ -554,14 +616,12 @@ class Logical extends Expr {
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = this.check(x1.type, x2.type);
-    if (this.type == void 0) this.error("type error")
+    if (this.type == void 0) this.error("Type error")
   }
-
   check(p1, p2) {
     if (p1 == Type.Bool && p2 == Type.Bool) return Type.Bool;
     else return void 0;
   }
-
   gen() {
     var f = this.newlabel()
       , a = this.newlabel()
@@ -574,7 +634,6 @@ class Logical extends Expr {
     this.emitlabel(a);
     return temp
   }
-
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }
 
@@ -608,6 +667,8 @@ class Rel extends Logical {
   constructor(tok, x1, x2) { super(tok, x1, x2) }
   check(p1, p2) {
     if (p1 == p2) return Type.Bool;
+    else if (p1 == Type.Selector && p2 == Type.Int) return Type.Bool;
+    else if (p2 == Type.Selector && p1 == Type.Int) return Type.Bool;
     else return void 0
   }
   jumping(t, f) {
@@ -633,11 +694,11 @@ class Parser {
   }
 
   move() { this.look = this.lex.scan(); }
-  error(s) { throw new Error("near line " + Lexer.line + ":" + s) }
+  error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
 
   match(t) {
     if (this.look.tag == t) this.move();
-    else this.error("syntax error")
+    else this.error("Syntax error")
   }
 
   program() {
@@ -678,11 +739,11 @@ class Parser {
   CPStmts() {
     if (this.look.tag == '}') return Stmt.Null;
     else if (this.look.tag == Tag.EOF) return Stmt.Null;
-    else return new Seq(this.stmt(), this.stmts())
+    else return new Seq(this.CPStmt(), this.CPStmts())
   }
 
   CPStmt() {
-    var x, s, s1, s2, savedStmt;
+    var x, s1, s2;
     switch (this.look.tag) {
       case ';':
         this.move();
@@ -694,17 +755,14 @@ class Parser {
         this.match(Tag.ELSE);
         s2 = this.stmt();
         return new Else(x, s1, s2);
-      case Tag.BREAK:
-        this.match(Tag.BREAK), this.match(";");
-        return new Break();
       case "{":
         return this.block();
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD:
-        return this.bool();
-      default:
+      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING:
         return this.assign();
+      default:
+        this.error("Syntax error: Unexpected " + this.look.tag)
     }
   }
 
@@ -719,7 +777,7 @@ class Parser {
   }
 
   decl() {
-    // D -> type ID
+    // D -> type ID [= E]
     var p = this.type();
     var tok = this.look;
     this.match(Tag.ID);
@@ -728,10 +786,10 @@ class Parser {
     this.used += p.width;
     if (this.look.tag == ';') {
       this.match(";");
-      return Stmt.Null
+      return new AssignExpr(id, new Constant(new NumericLiteral(0)));
     } else if (this.look.tag == '=') {
       this.move();
-      var stmt = new AssignExpr(id, this.bool());
+      var stmt = new AssignExpr(id, this.assign());
       this.match(";");
       return stmt
     }
@@ -786,45 +844,31 @@ class Parser {
         return this.block();
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD:
-        return this.bool();
-      case Tag.ID:
-        return this.assign();
+      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING:
+        x = this.assign();
+        this.match(';');
+        return x;
       default:
         this.error("Syntax error: Unexpected " + this.look.tag)
     }
   }
 
-  primaryExpr() {
-    var stmt, t = this.look;
-    this.match(Tag.ID);
-    var id = this.top.get(t);
-    if (id == void 0) this.error(t.toString() + " undeclared");
-    if (this.look.tag == '=') { // S -> id = E
-      this.move();
-      stmt = new AssignExpr(id, this.bool());
-    } else {
-      while (this.look.tag == Tag.OR) {
-        var tok = this.look; this.move(); x = new Or(tok, x, this.join())
-      }
-      return x
-    }
-    //this.error("Syntax error: Unexpected " + this.look.tag)
-    this.match(";");
-    return stmt
-  }
-
   assign() {
-    var stmt, t = this.look;
-    this.match(Tag.ID);
-    var id = this.top.get(t);
-    if (id == void 0) this.error(t.toString() + " undeclared");
-    if (this.look.tag == '=') { // S -> id = E
-      this.move();
-      stmt = new AssignExpr(id, this.bool());
-    } else this.error("Syntax error: Unexpected " + this.look.tag)
-    this.match(";");
-    return stmt
+    var x = this.bool(), tok = this.look;
+    switch (tok.tag) {
+      case "=":
+        if (x.op.tag == Tag.ID) {
+          this.match("=");
+          return new AssignExpr(x, this.assign());
+        } else this.error("Syntax error: Invalid left-hand side in assignment")
+      case "+=": case "-=": case "*=": case "/=": case "%=":
+        if (x.op.tag == Tag.ID) {
+          this.move();
+          return new CompoundAssignExpr(x, this.assign(), tok);
+        } else this.error("Syntax error: Invalid left-hand side in assignment")
+      default:
+        return x;
+    }
   }
 
   bool() {
@@ -873,7 +917,7 @@ class Parser {
 
   term() {
     var x = this.unary();
-    while (this.look.tag == "*" || this.look.tag == "/") {
+    while (this.look.tag == "*" || this.look.tag == "/" || this.look.tag == "%") {
       var tok = this.look; this.move(); x = new Arith(tok, x, this.unary())
     }
     return x
@@ -884,14 +928,27 @@ class Parser {
       this.move(); return new Unary(Word.minus, this.unary())
     } else if (this.look.tag == "!") {
       var tok = this.look; this.move(); return new Not(tok, this.unary())
-    } else return this.factor();
+    } else if (this.look.tag == "++" || this.look.tag == "--") {
+      var tok = this.look; this.move();
+      if (this.look.tag == Tag.ID) return new Prefix(tok, this.unary());
+      else this.error("Invalid left-hand side expression in prefix operation");
+    }
+    else return this.score();
+  }
+
+  score() {
+    var x = this.factor();
+    if (this.look.tag == Tag.GS) {
+      this.move();
+      return new GetScore(Word.gs, x, this.factor())
+    } else return x
   }
 
   factor() {
     var x = void 0;
     switch (this.look.tag) {
       case '(':
-        this.move(), x = this.bool(), this.match(')');
+        this.move(), x = this.assign(), this.match(')');
         return x;
       case Tag.NUM:
         x = new Constant(this.look, Type.Int);
@@ -910,29 +967,35 @@ class Parser {
         this.move();
         return x;
       case Tag.ID:
-        var s = this.look.toString();
+        x = this.look.toString();
         var id = this.top.get(this.look);
-        if (id == void 0) this.error(s + " undeclared");
-        //id = this.assign(id);
+        if (id == void 0) this.error(x + " undeclared");
         this.move();
         return id;
       case Tag.VANICMD:
-        var s = this.look;
+        x = this.look;
         this.move();
-        return new VanillaCmd(s);
+        return new VanillaCmd(x);
+      case Tag.STRING:
+        x = this.look;
+        this.move();
+        return new Constant(x, Type.String);
+      case Tag.SELECTOR:
+        x = this.look;
+        this.move();
+        return new Selector(x);
       default:
-        this.error("syntax error");
+        this.error("Syntax error: Unexpected " + this.look.tag);
         return x;
     }
   }
 }
 
-//str = fs.readFileSync("./compile/test", "utf8");
-
 function run() {
   var str = document.getElementById("input").value;
   Token.uid = 0;
   ASTNode.labels = 0;
+  Temp.count = 0;
   var lex = new Lexer(str);
   var parse = new Parser(lex);
   parse.program();
