@@ -38,16 +38,12 @@ var Tag = {
 }
 
 class TAC {
+  constructor(i, a1, a2, a3){
 
+  }
 }
 
-class Token {
-  constructor(t) { this.tag = t; this.uid = Token.uid++; }
-  static EOF = new Token(Tag.EOF);
-  toString() { return this.tag }
-  static uid = 0;
-}
-
+class Token {constructor(t) { this.tag = t; this.uid = Token.uid++; }toString() { return this.tag }static uid = 0;static EOF = new Token(Tag.EOF);}
 class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
 class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
 class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
@@ -483,11 +479,11 @@ class Arith extends Op {
   }
   reduce() { return this.genRightSide() }
   genRightSide() {
-    //return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce())
-    var t = new Temp(this.type);
+    return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce())
+    /*var t = new Temp(this.type);
     this.emit(t.toString() + " = " + this.expr1.reduce().toString());
     this.emit(t.toString() + " " + this.op.toString() + "= " + this.expr2.reduce().toString());
-    return t
+    return t*/
   }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }

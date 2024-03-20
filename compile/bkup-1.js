@@ -38,16 +38,12 @@ var Tag = {
 }
 
 class TAC {
+  constructor(i, a1, a2, a3){
 
+  }
 }
 
-class Token {
-  constructor(t) { this.tag = t; this.uid = Token.uid++; }
-  static EOF = new Token(Tag.EOF);
-  toString() { return this.tag }
-  static uid = 0;
-}
-
+class Token {constructor(t) { this.tag = t; this.uid = Token.uid++; }toString() { return this.tag }static uid = 0;static EOF = new Token(Tag.EOF);}
 class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
 class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
 class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
@@ -346,10 +342,6 @@ class If extends Stmt {
   }
 
   gen(b, a) {
-    /*var label = this.newlabel(); // stmt代码标号
-    this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
-    this.emitlabel(label);
-    this.stmt.gen(label, a)*/
     var label = this.newlabel(); // stmt代码标号
     this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
     this.emitlabel(label);
@@ -450,7 +442,7 @@ class Break extends Stmt {
 class Expr extends Stmt {
   constructor(t, p) { super(); this.op = t; this.type = p; }
   genRightSide() { return this } // Gen as an inline expr
-  gen() { return this.toString() }  // Gen as a stmt
+  gen() { }  // Gen as a stmt, this's a placeholder for child class
   reduce() { return this }
   jumping(t, f) { this.emitjumps(this.toString(), t, f) }
   emitjumps(test, t, f) {
@@ -483,9 +475,16 @@ class Arith extends Op {
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = Type.max(x1.type, x2.type);
-    if (this.type == void 0) this.error("Type error")
+    if (this.type == void 0) this.error("Type mismatch")
   }
-  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
+  reduce() { return this.genRightSide() }
+  genRightSide() {
+    return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce())
+    /*var t = new Temp(this.type);
+    this.emit(t.toString() + " = " + this.expr1.reduce().toString());
+    this.emit(t.toString() + " " + this.op.toString() + "= " + this.expr2.reduce().toString());
+    return t*/
+  }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }
 
@@ -518,14 +517,8 @@ class Prefix extends Unary {
     super(tok, x);
     if (!x instanceof Id) this.error("Invalid left-hand side expression in prefix operation");
   }
-
-  genRightSide() {
-
-  }
-
-  reduce() {
-
-  }
+  genRightSide() { }
+  reduce() { }
 }
 
 class Temp extends Expr {
@@ -556,27 +549,26 @@ class AssignExpr extends Expr {
   check(p1, p2) {
     if (p1 == p2) return p2;
     else if (p1 == Type.Int && p2 == Type.Selector) return p1;
-    else if (p1 == Type.Int && p2 == Type.Vector) return p1;
+    else if (p1 == Type.Vector && p2 == Type.Int) return Type.Vector;
     else return void 0
   }
   gen() { this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString()) }
   genRightSide() { this.gen(); return this.id }
   toString() { return this.id.toString() + " = " + this.expr.toString() }
-  reduce() {
-    this.gen();
-    return this.id
-  }
+  reduce() { this.gen(); return this.id }
 }
 
 class CompoundAssignExpr extends AssignExpr {
   constructor(i, x, op) {
     super(i, x);
-    this.op = new Token(op.tag.replace("=", ""));
+    //this.op = new Token(op.tag.replace("=", ""));
+    this.op = op
   }
   gen() {
-    var t = new Temp(this.type);
-    this.emit(t.toString() + " = " + this.expr.genRightSide().toString());
-    this.emit(this.id.toString() + " = " + this.id.toString() + " " + this.op.toString() + " " + t.toString())
+    //var t = new Temp(this.type);
+    //this.emit(t.toString() + " = " + this.expr.genRightSide().toString());
+    //this.emit(this.id.toString() + " = " + this.id.toString() + " " + this.op.toString() + " " + t.toString())
+    this.emit(this.id.toString() + " " + this.op.toString() + " " + this.expr.reduce().toString())
   }
 }
 
@@ -862,7 +854,7 @@ class Parser {
           return new AssignExpr(x, this.assign());
         } else this.error("Syntax error: Invalid left-hand side in assignment")
       case "+=": case "-=": case "*=": case "/=": case "%=":
-        if (x.op.tag == Tag.ID) {
+        if (x.op.tag == Tag.ID || x.op.tag == Tag.GS) {
           this.move();
           return new CompoundAssignExpr(x, this.assign(), tok);
         } else this.error("Syntax error: Invalid left-hand side in assignment")
