@@ -26,6 +26,7 @@ var Tag = {
 
   EOF: 0xFFFF,
   LF: 0xFFFE,
+  EXPR: 0xFFFD,
   VANICMD: 276,
   STRING: 277,
   SELECTOR: 278,
@@ -38,12 +39,12 @@ var Tag = {
 }
 
 class TAC {
-  constructor(i, a1, a2, a3){
+  constructor(i, a1, a2, a3) {
 
   }
 }
 
-class Token {constructor(t) { this.tag = t; this.uid = Token.uid++; }toString() { return this.tag }static uid = 0;static EOF = new Token(Tag.EOF);}
+class Token { constructor(t) { this.tag = t; this.uid = Token.uid++; } toString() { return this.tag } static uid = 0; static EOF = new Token(Tag.EOF); }
 class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
 class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
 class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
@@ -96,6 +97,7 @@ class Lexer {
     this.reserve(Word.False);
     this.reserve(Word.True);
     this.reserve(Type.Int);
+    this.reserve(Type.Bool);
     this.reserve(Type.String);
     this.reserve(Type.Selector);
     this.reserve(Type.Vector);
@@ -320,9 +322,14 @@ class ASTNode {
   constructor() { this.lexline = Lexer.line; this.labels = 0; }
   static labels = 0;
   error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
-  newlabel() { return ++ASTNode.labels }
-  emitlabel(i) { Parser.append("L" + i + ":") }
+  newlabel() { return { label: ++ASTNode.labels } }
+  emitlabel(i) { Parser.appendObj(i) }
   emit(s) { Parser.append("\t" + s + "\n") }
+  emitif(t, l) { Parser.appendObj({ type: "if", expr: t, label: l }) }
+  emitgoto(l) { Parser.appendObj({ type: "goto", label: l }) }
+  emitiffalse(t, l) { Parser.appendObj({ type: "iffalse", expr: t, label: l }) }
+  emitassign(i, e) { Parser.appendObj({ type: "assign", id: i, expr: e }) }
+  emitvanilla(c) { Parser.appendObj({ type: "vanilla", expr: c }) }
 }
 
 class Stmt extends ASTNode {
@@ -365,7 +372,7 @@ class Else extends Stmt {
     this.expr.jumping(0, label2); // 为真时控制流穿越至stmt1
     this.emitlabel(label1);
     this.stmt1.gen(label1, a)
-    this.emit("goto L" + a);
+    this.emitgoto(a);
     this.emitlabel(label2);
     this.stmt2.gen(label2, a)
   }
@@ -386,7 +393,7 @@ class While extends Stmt {
     var label = this.newlabel();
     this.emitlabel(label);
     this.stmt.gen(label, b);
-    this.emit("goto L" + b)
+    this.emitgoto(b)
   }
 }
 
@@ -430,31 +437,32 @@ class Seq extends Stmt {
 class Break extends Stmt {
   constructor() {
     super();
-    if (Stmt.Enclosing == Stmt.Null) this.error("unenclosed break");
+    if (Stmt.Enclosing == Stmt.Null) this.error("Unenclosed break");
     this.stmt = Stmt.Enclosing;
   }
 
   gen(b, a) {
-    this.emit("goto L" + this.stmt.after)
+    this.emitgoto(this.stmt.after)
   }
 }
 
 class Expr extends Stmt {
-  constructor(t, p) { super(); this.op = t; this.type = p; }
+  constructor(t, p) { super(); this.op = t; this.type = p; this.tag = Tag.EXPR }
   genRightSide() { return this } // Gen as an inline expr
   gen() { }  // Gen as a stmt, this's a placeholder for child class
   reduce() { return this }
-  jumping(t, f) { this.emitjumps(this.toString(), t, f) }
+  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
   emitjumps(test, t, f) {
     if (t != 0 && f != 0) {
-      this.emit("if " + test + " goto L" + t);
-      this.emit("goto L" + f)
+      this.emitif(test, t);
+      this.emitgoto(f)
     }
-    else if (t != 0) this.emit("if " + test + " goto L" + t);
-    else if (f != 0) this.emit("iffalse " + test + " goto L" + f);
+    else if (t != 0) this.emitif(test, t);
+    else if (f != 0) this.emitiffalse(test, f);
     else; // 不生成指令, t和f都直接穿越
   }
   toString() { return this.op.toString() }
+  toAddr() { return this }
 }
 
 class Id extends Expr { constructor(id, p, b) { super(id, p); this.offset = b }/* offset为相对地址 */ }
@@ -464,9 +472,10 @@ class Op extends Expr {
   reduce() {
     var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
-    this.emit(t.toString() + " = " + x.toString());
+    this.emitassign(t.toAddr(), x.toAddr());
     return t
   }
+  toAddr() { return this.genRightSide() }
 }
 
 class Arith extends Op {
@@ -478,13 +487,7 @@ class Arith extends Op {
     if (this.type == void 0) this.error("Type mismatch")
   }
   reduce() { return this.genRightSide() }
-  genRightSide() {
-    return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce())
-    /*var t = new Temp(this.type);
-    this.emit(t.toString() + " = " + this.expr1.reduce().toString());
-    this.emit(t.toString() + " " + this.op.toString() + "= " + this.expr2.reduce().toString());
-    return t*/
-  }
+  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }
 
@@ -534,8 +537,8 @@ class Constant extends Expr {
   static True = new Constant(Word.True, Type.Bool);
   static False = new Constant(Word.False, Type.Bool);
   jumping(t, f) {
-    if (this == Constant.True && t != 0) this.emit("goto L" + t);
-    if (this == Constant.False && f != 0) this.emit("goto L" + f);
+    if (this == Constant.True && t != 0) this.emitgoto(t);
+    if (this == Constant.False && f != 0) this.emitgoto(f);
   }
 }
 
@@ -548,11 +551,12 @@ class AssignExpr extends Expr {
   }
   check(p1, p2) {
     if (p1 == p2) return p2;
-    else if (p1 == Type.Int && p2 == Type.Selector) return p1;
+    else if (p1 == Type.Int && p2 == Type.Selector) return Type.Int;
     else if (p1 == Type.Vector && p2 == Type.Int) return Type.Vector;
+    else if (p2 == Type.Vector && p1 == Type.Int) return Type.Int;
     else return void 0
   }
-  gen() { this.emit(this.id.toString() + " = " + this.expr.genRightSide().toString()) }
+  gen() { this.emitassign(this.id.toAddr(), this.expr.genRightSide().toAddr()) }
   genRightSide() { this.gen(); return this.id }
   toString() { return this.id.toString() + " = " + this.expr.toString() }
   reduce() { this.gen(); return this.id }
@@ -561,14 +565,12 @@ class AssignExpr extends Expr {
 class CompoundAssignExpr extends AssignExpr {
   constructor(i, x, op) {
     super(i, x);
-    //this.op = new Token(op.tag.replace("=", ""));
-    this.op = op
+    this.op = new Token(op.tag.replace("=", ""));
   }
   gen() {
-    //var t = new Temp(this.type);
-    //this.emit(t.toString() + " = " + this.expr.genRightSide().toString());
-    //this.emit(this.id.toString() + " = " + this.id.toString() + " " + this.op.toString() + " " + t.toString())
-    this.emit(this.id.toString() + " " + this.op.toString() + " " + this.expr.reduce().toString())
+    var t = new Temp(this.type);
+    this.emitassign(t.toAddr(), this.expr.genRightSide().toAddr());
+    this.emitassign(this.id.toAddr(), new Arith(this.op, this.id, t).toAddr())
   }
 }
 
@@ -577,12 +579,12 @@ class VanillaCmd extends Expr {
     super(tok, Type.Int);
     this.cmd = tok;
   }
-  gen() { this.emit(this.cmd.toString()) }
+  gen() { this.emitvanilla(this.cmd.toString()) }
   toString() { return this.cmd.toString() }
   reduce() {
     var x = this.genRightSide()  // = this
       , t = new Temp(this.type);
-    this.emit(t.toString() + " = " + x.toString());
+    this.emitassign(t.toAddr(), x.toAddr());
     return t
   }
 }
@@ -593,11 +595,11 @@ class Selector extends Expr {
     this.sel = tok;
   }
   reduce() {
-    var t = new Temp(this.type);
-    this.emit(t.toString() + " = num(" + this.toString() + ")");
+    var t = new Temp(Type.Int);
+    this.emitassign(t.toAddr(), this.toAddr());
     return t
   }
-  jumping(t, f) { this.emitjumps(this.toString(), t, f) }
+  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
   genRightSide() { return this.reduce() }
   toString() { return this.sel.toString() }
 }
@@ -619,10 +621,10 @@ class Logical extends Expr {
       , a = this.newlabel()
       , temp = new Temp(this.type);
     this.jumping(0, f);
-    this.emit(temp.toString() + " = true");
-    this.emit("goto L" + a);
+    this.emitassign(temp.toString(), Constant.True);
+    this.emitgoto(a);
     this.emitlabel(f);
-    this.emit(temp.toString() + " = false");
+    this.emit(temp.toString(), Constant.False);
     this.emitlabel(a);
     return temp
   }
@@ -664,10 +666,7 @@ class Rel extends Logical {
     else return void 0
   }
   jumping(t, f) {
-    var a = this.expr1.reduce()
-      , b = this.expr2.reduce()
-      , test = a.toString() + " " + this.op.toString() + " " + b.toString();
-    this.emitjumps(test, t, f)
+    this.emitjumps(new Rel(this.op, this.expr1.reduce(), this.expr2.reduce()), t, f)
   }
 }
 
@@ -678,13 +677,12 @@ class Parser {
     this.used = 0; // 用于声明变量的存储位置
     this.top = new Env(this.top); // 当前或顶层符号表
     Parser.result = "";
+    Parser.resultObj = [];
     this.move();
   }
 
-  static append(a) {
-    Parser.result += a;
-  }
-
+  static append(a) { Parser.result += a }
+  static appendObj(a) { Parser.resultObj.push(a) }
   move() { this.look = this.lex.scan(); }
   error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
 
@@ -806,7 +804,7 @@ class Parser {
         this.move();
         return Stmt.Null;
       case Tag.IF:
-        this.match(Tag.IF), this.match("("), x = this.bool(), this.match(")");
+        this.match(Tag.IF), this.match("("), x = this.assign(), this.match(")");
         s1 = this.stmt();
         if (this.look.tag != Tag.ELSE) return new If(x, s1);
         this.match(Tag.ELSE);
@@ -815,7 +813,7 @@ class Parser {
       case Tag.WHILE:
         var whilenode = new While();
         savedStmt = Stmt.Enclosing, Stmt.Enclosing = whilenode;
-        this.match(Tag.WHILE), this.match("("), x = this.bool(), this.match(")");
+        this.match(Tag.WHILE), this.match("("), x = this.assign(), this.match(")");
         s1 = this.stmt();
         whilenode.init(x, s1);
         Stmt.Enclosing = savedStmt;
@@ -825,7 +823,7 @@ class Parser {
         savedStmt = Stmt.Enclosing, Stmt.Enclosing = donode;
         this.match(Tag.DO);
         s1 = this.stmt();
-        this.match(Tag.WHILE), this.match("("), x = this.bool(), this.match(")"), this.match(";");
+        this.match(Tag.WHILE), this.match("("), x = this.assign(), this.match(")"), this.match(";");
         donode.init(s1, x);
         Stmt.Enclosing = savedStmt;
         return donode;
@@ -992,4 +990,5 @@ function run() {
   var parse = new Parser(lex);
   parse.program();
   document.getElementById("output").value = Parser.result;
+  console.log(Parser.resultObj)
 }
