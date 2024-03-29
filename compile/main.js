@@ -299,36 +299,128 @@ class Type extends Word {
   }
 }
 
-class TACVanilla { constructor(c) { this.cmd = c } }
+function genScb(e1, o1, op, e2, o2) {
+  // scb ply op <dest> <obj1> <op> <victim> <obj2>
+  if (e2 && o2) return `scb ply op ${e1} ${o1} ${op} ${e2} ${o2}`;
+  // seb ply <add|set> <victim> <obj>
+  else if (e2) return `scb ply ${op} ${e1} ${o1} ${e2}`;
+}
+class CB { constructor(cmd) { this.cmd = cmd; } }
 class TACBaseBlock extends Array { constructor() { super() } }
 class TAC extends Array { constructor(m) { super(); this.mode = m } }
 class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = 0 } mark() { this.onUse++ } }
-class TACAssign { constructor(i, e, o) { if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; } getIdTag() { return this.id.op.tag } getExprTag() { return this.expr.op.tag } }
+class TACDelayH { constructor(t) { this.type = "delayh"; this.delay = t } }
 class TACGoto { constructor(l, c, t) { if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
+class TACVanilla { constructor(c) { this.cmd = c } gen() { return new CB(this.cmd) } }
+class TACAssign {
+  constructor(i, e, o) { if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; }
+  getIdTag() { return this.id.op.tag }
+  getExprTag() { return this.expr.op.tag }
+  gen() {
+    // assign
+    if (this.type == "assign") {
+      var s = "", t = "", it = this.getIdTag(), et = this.getExprTag();
+      if ((it == Tag.ID || it == Tag.TEMP) && this.id.type == Type.Int) t = this.id.toString(), s = this.scb;
+      if (it == Tag.GS) t = this.id.target.toString(), s = this.id.scb.toString();
+      switch (et) {
+        case Tag.NUM:
+          return new CB(genScb(t, s, "set", this.expr.toString()));
+        case Tag.SELECTOR:
+          t = `scb ply set ${v} 0\nexe ${k.expr.toString()} ~~~ scb ply add ${k.id.toString()} ${this.scb} 1`;
+          break;
+        case Tag.GS:
+          return new CB(genScb(t, s, "=", this.expr.target.toString(), this.expr.scb.toString()));
+        case Tag.ID: case Tag.TEMP:
+          return new CB(genScb(t, s, "=", this.expr.toString(), this.scb));
+        default:
+          t = `scb ply op ${v} = ${k.expr.expr1.toString()} ${this.scb}\nscb ply op ${k.id.toString()} ${this.scb} ${et}= ${k.expr.expr2.toString()} ${this.scb}`;
+          break;
+      }
+    } else { // assigncomp
 
+
+    }
+  }
+}
+
+/** Abstract Syntax Tree Node */
 class ASTNode {
   constructor() { this.lexline = Lexer.line; this.labels = 0; }
   static labels = 0;
+  /** Throw an error */
   error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
+  /** 
+   * Assign a new label.
+   * @returns {TACLabel} Label
+   */
   newlabel() { return new TACLabel(++ASTNode.labels) }
+  /** 
+   * Gen a label as TAC.
+   * @param {TACLabel} i - Label 
+   */
   emitlabel(i) { Parser.appendObj(i) }
   emit(s) { Parser.append("\t" + s + "\n") }
+  /**
+   * Gen an if-goto.
+   * @param {Expr} t - Condition
+   * @param {TACLabel} l - Label 
+   */
   emitif(t, l) { l.mark(); Parser.appendObj(new TACGoto(l, 1, t)) }
+  /**
+   * Gen a direct goto.
+   * @param {TACLabel} l - Label 
+   */
   emitgoto(l) { l.mark(); Parser.appendObj(new TACGoto(l)) }
+  /**
+   * Gen an iffalse-goto.
+   * @param {Expr} t - Condition
+   * @param {TACLabel} l - Label 
+   */
   emitiffalse(t, l) { l.mark(); Parser.appendObj(new TACGoto(l, 2, t)) }
+  /** 
+   * Gen a TAC operation.
+   * @param {Id | GetScore} i - Condition
+   * @param {Expr} e - Expression
+   */
   emitassign(i, e) { Parser.appendObj(new TACAssign(i, e)) }
+  /** 
+   * Gen a TAC assigncomp.
+   * @param {Id | GetScore} i - Condition
+   * @param {Token} o - Operator
+   * @param {Expr} e - Expression
+   */
   emitassigncomp(i, o, e) { Parser.appendObj(new TACAssign(i, e, o)) }
+  /** 
+   * Gen a vanilla command.
+   * @param {VanillaCmd} c - Command
+   */
   emitvanilla(c) { Parser.appendObj(new TACVanilla(c)) }
+  /** 
+   * Gen a delay hard.
+   * @param {NumericLiteral} t - Delay time
+   */
+  emitdelayh(t) { Parser.appendObj(new TACDelayH(t)) }
 }
 
+/** Statement implement. @extends Stmt */
 class Stmt extends ASTNode {
   constructor() { super(); this.after = 0; this.useLabel = 0 }
   static Null = new Stmt();
   static Enclosing = Stmt.Null;
-  gen(b, a) { }
+  /** 
+   * Gen as a stmt.
+   * @param {TACLabel} b - Label of this statement
+   * @param {TACLabel} a - Label of next statement
+   */
+  gen(b, a) {/* Empty placeholder for child class */ }
 }
 
+/** If statement. @extends Stmt */
 class If extends Stmt {
+  /** 
+   * @param {Expr} x - Condition expression
+   * @param {Stmt} s - Statement
+   */
   constructor(x, s) {
     super();
     this.useLabel = 1;
@@ -336,7 +428,6 @@ class If extends Stmt {
     this.stmt = s;
     if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
-
   gen(b, a) {
     var label = this.newlabel(); // stmt代码标号
     this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
@@ -345,7 +436,13 @@ class If extends Stmt {
   }
 }
 
+/** If-Else statement. @extends Stmt */
 class Else extends Stmt {
+  /** 
+   * @param {Expr} x - Condition expression
+   * @param {Stmt} s1 - If statement
+   * @param {Stmt} s2 - Else statement
+   */
   constructor(x, s1, s2) {
     super();
     this.useLabel = 1;
@@ -354,11 +451,10 @@ class Else extends Stmt {
     this.stmt2 = s2;
     if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
-
   gen(b, a) {
-    var label1 = this.newlabel()  // stmt1代码标号
-      , label2 = this.newlabel(); // stmt2代码标号
-    this.expr.jumping(0, label2); // 为真时控制流穿越至stmt1
+    var label1 = this.newlabel()  // Label of stmt1
+      , label2 = this.newlabel(); // Label of stmt2
+    this.expr.jumping(0, label2); // Control flow cross to stmt1 when expr == true
     this.emitlabel(label1);
     this.stmt1.gen(label1, a)
     this.emitgoto(a);
@@ -367,15 +463,19 @@ class Else extends Stmt {
   }
 }
 
+/** While statement. @extends Stmt */
 class While extends Stmt {
   constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
-
+  /** 
+   * Initiate while node.
+   * @param {Expr} x - Condition expression
+   * @param {Stmt} s - Statement
+   */
   init(x, s) {
     this.expr = x;
     this.stmt = s;
     if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
-
   gen(b, a) {
     this.after = a;
     this.expr.jumping(0, a);
@@ -386,15 +486,19 @@ class While extends Stmt {
   }
 }
 
+/** Do-While statement. @extends Stmt */
 class Do extends Stmt {
   constructor() { super(); this.expr = void 0; this.stmt = void 0; this.useLabel = 1; }
-
+  /** 
+   * Initiate Do-While node.
+   * @param {Stmt} s - Statement
+   * @param {Expr} x - Condition expression
+   */
   init(s, x) {
     this.expr = x;
     this.stmt = s;
     if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
-
   gen(b, a) {
     this.after = a;
     var label = this.newlabel();
@@ -404,7 +508,17 @@ class Do extends Stmt {
   }
 }
 
+/** 
+ * Statement sequence.
+ * @extends Stmt 
+ * Seq -> Stmt
+ *      | Stmt Seq
+ */
 class Seq extends Stmt {
+  /** 
+   * @param {Stmt} s1 - Statement1
+   * @param {Stmt} s2 - Statement2
+   */
   constructor(s1, s2) {
     super();
     this.stmt1 = s1;
@@ -423,6 +537,7 @@ class Seq extends Stmt {
   }
 }
 
+/** Break statement. @extends Stmt */
 class Break extends Stmt {
   constructor() {
     super();
@@ -433,7 +548,10 @@ class Break extends Stmt {
   gen(b, a) { this.emitgoto(this.stmt.after) }
 }
 
-/** Expression implement @extends Stmt */
+/** Delay hard statement. @extends Stmt */
+class DelayH extends Stmt { constructor(tok) { super(); this.delay = tok } gen(b, a) { this.emitdelayh(this.delay) } }
+
+/** Expression implement. @extends Stmt */
 class Expr extends Stmt {
   /**
    * Create a expression AST node.
@@ -443,11 +561,20 @@ class Expr extends Stmt {
   constructor(t, p) { super(); this.op = t; this.type = p; this.tag = Tag.EXPR }
   /** Gen as an inline expr, or as the right-hand-side of a TAC */
   genRightSide() { return this }
-  /** Gen as a stmt, this's a placeholder for child class */
-  gen() { }
   /** Gen as a term in TAC, or an address */
   reduce() { return this }
+  /**
+   * Gen as a conditioned goto.
+   * @param {TACLabel} t - Label of true
+   * @param {TACLabel} f - Lable of false
+   */
   jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
+  /**
+   * Gen as a conditioned goto.
+   * @param {Expr} test - Condition
+   * @param {TACLabel} t - Label of true
+   * @param {TACLabel} f - Lable of false
+   */
   emitjumps(test, t, f) {
     if (t != 0 && f != 0) {
       this.emitif(test, t);
@@ -455,14 +582,14 @@ class Expr extends Stmt {
     }
     else if (t != 0) this.emitif(test, t);
     else if (f != 0) this.emitiffalse(test, f);
-    else; // 不生成指令, t和f都直接穿越
+    else; // t & f directly cross, no instruction generating.
   }
   toString() { return this.op.toString() }
   /** Gen as the right-hand-side in TAC */
   toAddr() { return this }
 }
 
-/** Identifier implement @extends Expr */
+/** Identifier implement. @extends Expr */
 class Id extends Expr {
   /**
    * @param {Token} id - Token of the identifier
@@ -472,7 +599,7 @@ class Id extends Expr {
   constructor(id, p, b) { super(id, p); this.offset = b }/* offset为相对地址 */
 }
 
-/** Expression with an operator @extends Expr */
+/** Expression with an operator. @extends Expr */
 class Op extends Expr {
   /**
    * @param {Token} tok - Token of the operator
@@ -488,7 +615,7 @@ class Op extends Expr {
   toAddr() { return this.genRightSide() }
 }
 
-/** Arith expression implement @extends Op */
+/** Arith expression implement. @extends Op */
 class Arith extends Op {
   /**
    * @param {Token} tok - Token of the operator
@@ -509,7 +636,7 @@ class Arith extends Op {
 
 /** 
  * GetScore expression implement.
- * The indication of scoreboard in HLCL
+ * The usage of scoreboard in HLCL.
  * @extends Op
  */
 class GetScore extends Op {
@@ -536,7 +663,7 @@ class GetScore extends Op {
   }
 }
 
-/** Unary expression implement @extends Op */
+/** Unary expression implement. @extends Op */
 class Unary extends Op {
   /**
    * @param {Token} tok - Token of the operator
@@ -552,7 +679,7 @@ class Unary extends Op {
   toString() { return this.op.toString() + " " + this.expr.toString() }
 }
 
-/** Temp variable implement @extends Expr */
+/** Temp variable implement. @extends Expr */
 class Temp extends Expr { constructor(p) { super(Word.temp, p); this.number = ++Temp.count } toString() { return "t" + this.number } }
 
 /** Constant implement @extends Expr */
@@ -573,7 +700,7 @@ class Constant extends Expr {
   }
 }
 
-/** Assignment implement @extends Expr */
+/** Assignment implement. @extends Expr */
 class AssignExpr extends Expr {
   /**
    * @param {Token} i - Identifier to be assigned
@@ -601,7 +728,7 @@ class AssignExpr extends Expr {
   reduce() { this.gen(); return this.id }
 }
 
-/** Compound assignment implement @extends AssignExpr */
+/** Compound assignment implement. @extends AssignExpr */
 class CompoundAssignExpr extends AssignExpr {
   /**
    * @param {Token} i - Identifier to be assigned
@@ -646,7 +773,11 @@ class Postfix extends CompoundAssignExpr {
   genRightSide() { this.gen(); return this.id }
 }
 
-/** Vanilla command implement. @extends Expr */
+/** 
+ * Vanilla command implement. 
+ * Produces direct access to vanilla command in MCBE.
+ * @extends Expr 
+ */
 class VanillaCmd extends Expr {
   /**
    * @param {Token} tok - Token of vanilla command
@@ -677,7 +808,13 @@ class Selector extends Expr {
   toString() { return this.sel.toString() }
 }
 
+/** Logical expression implement. @extends Expr */
 class Logical extends Expr {
+  /**
+   * @param {Token} tok - Token of operator
+   * @param {Expr} x1 - Expression in the left side of operator
+   * @param {Expr} x2 - Expression in the right side of operator
+   */
   constructor(tok, x1, x2) {
     super(tok, void 0);
     this.expr1 = x1;
@@ -705,7 +842,13 @@ class Logical extends Expr {
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
 }
 
+/** Logical or implement. @extends Logical */
 class Or extends Logical {
+  /**
+   * @param {Token} tok - Token of operator
+   * @param {Expr} x1 - Expression in the left side of operator
+   * @param {Expr} x2 - Expression in the right side of operator
+   */
   constructor(tok, x1, x2) { super(tok, x1, x2) }
   jumping(t, f) {
     var label = t != 0 ? t : this.newlabel();
@@ -715,7 +858,13 @@ class Or extends Logical {
   }
 }
 
+/** Logical and implement. @extends Logical */
 class And extends Logical {
+  /**
+   * @param {Token} tok - Token of operator
+   * @param {Expr} x1 - Expression in the left side of operator
+   * @param {Expr} x2 - Expression in the right side of operator
+   */
   constructor(tok, x1, x2) { super(tok, x1, x2) }
   jumping(t, f) {
     var label = f != 0 ? f : this.newlabel();
@@ -725,13 +874,24 @@ class And extends Logical {
   }
 }
 
+/** Logical not implement. @extends Logical */
 class Not extends Logical {
+  /**
+   * @param {Token} tok - Token of operator
+   * @param {Expr} x2 - Expression
+   */
   constructor(tok, x2) { super(tok, x2, x2) }
   jumping(t, f) { this.expr2.jumping(f, t); }
   toString() { return this.op.toString() + " " + this.expr2.toString() }
 }
 
+/** Comparison expression implement. @extends Logical */
 class Rel extends Logical {
+  /**
+   * @param {Token} tok - Token of operator
+   * @param {Expr} x1 - Expression in the left side of operator
+   * @param {Expr} x2 - Expression in the right side of operator
+   */
   constructor(tok, x1, x2) { super(tok, x1, x2) }
   check(p1, p2) {
     if (p1 == p2) return Type.Bool;
@@ -779,7 +939,7 @@ class Parser {
       // c: label counter, d: baseblock counter, e: counter of inst except label in current bb
       for (var a of Parser.resultObj) {
         var rd = (r[d] ? r[d] : (e = 0, r[d] = new TACBaseBlock()));
-        if (a.type == "label") a.onUse ? (a.label = c++, (e && d++), rd.push(a)) : 0;
+        if (a.type == "label") a.onUse ? (a.label = c++, (e ? (e = 0, r[++d] = new TACBaseBlock()).push(a) : rd.push(a))) : 0;
         else if (a.type == "if" || a.type == "iffalse" || a.type == "goto") rd.push(a), d++;
         else rd.push(a), e++;
       }
@@ -876,6 +1036,35 @@ class Parser {
         x = this.assign();
         this.match(';');
         return x;
+      default:
+        this.errorUnexp()
+    }
+  }
+
+  CPStmt() {
+    var x, s1, s2;
+    switch (this.look.tag) {
+      case ';':
+        this.move();
+        return Stmt.Null;
+      case Tag.IF:
+        this.match(Tag.IF), this.match("("), x = this.assign(), this.match(")");
+        s1 = this.CPStmt();
+        if (this.look.tag != Tag.ELSE) return new If(x, s1);
+        this.match(Tag.ELSE);
+        s2 = this.CPStmt();
+        return new Else(x, s1, s2);
+      case "{":
+        return this.Block(Mode.CP);
+      case Tag.BASIC:
+        return this.decl();
+      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
+        x = this.assign();
+        this.match(';');
+        return x;
+      case Tag.DELAYH:
+        this.match(Tag.DELAYH); x = this.look; this.match(Tag.NUM); this.match(';')
+        return new DelayH(x);
       default:
         this.errorUnexp()
     }
@@ -1030,8 +1219,6 @@ class Parser {
   }
 }
 
-class CB { constructor(cmd) { this.cmd = cmd; } }
-
 function Generator(W) {
   var regDesc = [], varDesc = [], scb = "bkstage";
   function getReg(v) {
@@ -1039,12 +1226,6 @@ function Generator(W) {
     if (v.tag == Tag.ID) {
       //varDesc[v.offset] ? 
     }
-  }
-  function genScb(e1, o1, op, e2, o2) {
-    // scb ply op <dest> <obj1> <op> <victim> <obj2>
-    if (e2 && o2) return `scb ply op ${e1} ${o1} ${op} ${e2} ${o2}`;
-    // seb ply <add|set> <victim> <obj>
-    else if (e2) return `scb ply ${op} ${e1} ${o1} ${e2}`;
   }
   function CP(M) {
     var chain = [];
