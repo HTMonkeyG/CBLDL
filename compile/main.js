@@ -1,3 +1,14 @@
+/**
+ * HLCL Compiler
+ * For CBLDL Specification v1.0
+ * By HTMonkeyG
+ * Bilibili & GitHub: HTMonkeyG
+ * 
+ * Reference: 
+ *   Alfred V. Aho, Ravi Sethi, Jeffrey D. Ullman.
+ *   Compilers: Principles, Techniques, and Tools. 2nd ed.
+ */
+
 "use strict";
 
 const Tag = {
@@ -20,10 +31,6 @@ const Tag = {
   TEMP: 273,
   TRUE: 274,
   WHILE: 275,
-
-  EOF: 0xFFFF,
-  LF: 0xFFFE,
-  EXPR: 0xFFFD,
   VANICMD: 276,
   STRING: 277,
   SELECTOR: 278,
@@ -34,7 +41,25 @@ const Tag = {
   GS: 283,
   AE: 284,
   EXECUTE: 285,
-  DELAYH: 286
+  DELAYH: 286,
+  LF: 0xFFFE,
+  EOF: 0xFFFF
+};
+
+const ExprTag = {
+  EXPR: 0x8000,
+  ARITH: 0x8001,
+  GS: 0x8002,
+  SELECTOR: 0x8003,
+  CONST: 0x8004,
+  UNARY: 0x8005,
+  VANICMD: 0x8006,
+  ID: 0x8007,
+  TEMP: 0x8008,
+  ASSIGN: 0x8009,
+  ASSICOMP: 0x800A,
+  PREF: 0x800B,
+  POSTF: 0x800C
 };
 
 const Mode = { CP: 0, CR: 1, M: 2, DECL: 3 };
@@ -56,211 +81,11 @@ class Word extends Token {
   static le = new Word("<=", Tag.LE);
   static ge = new Word(">=", Tag.GE);
   static gs = new Word("->", Tag.GS);
-  static ex = new Word("=>", Tag.AE);
+  static ae = new Word("=>", Tag.AE);
   static minus = new Word("minus", Tag.MINUS);
   static True = new Word("true", Tag.TRUE);
   static False = new Word("false", Tag.FALSE);
   static temp = new Word("t", Tag.TEMP);
-}
-
-class Lexer {
-  constructor(str) {
-    this.words = new HashTable();
-    this.str = str;
-    this.ptr = 0;
-    this.peek = " ";
-    this.line = 1;
-    /* Reserved words */
-    this.reserve(new Word("if", Tag.IF));
-    this.reserve(new Word("else", Tag.ELSE));
-    this.reserve(new Word("while", Tag.WHILE));
-    this.reserve(new Word("do", Tag.DO));
-    this.reserve(new Word("break", Tag.BREAK));
-    this.reserve(new Word("chain", Tag.CHAIN));
-    this.reserve(new Word("pulse", Tag.PULSE));
-    this.reserve(new Word("repeating", Tag.REPEATING));
-    this.reserve(new Word("module", Tag.MODULE));
-    this.reserve(new Word("execute", Tag.EXECUTE));
-    this.reserve(new Word("delayh", Tag.DELAYH));
-    this.reserve(Word.False);
-    this.reserve(Word.True);
-    this.reserve(Type.Int);
-    this.reserve(Type.Bool);
-    this.reserve(Type.String);
-    this.reserve(Type.Selector);
-    this.reserve(Type.Vector);
-  }
-  readNext() {
-    if (this.ptr > this.str.length) throw new Error("String Ends");
-    return this.str[this.ptr++]
-  }
-  canRead() { return this.ptr <= this.str.length }
-  reserve(w) { this.words.put(w.lexeme, w) }
-  readch(c) {
-    this.peek = this.readNext();
-    if (this.peek != c) return !1;
-    this.peek = " ";
-    return !0
-  }
-  isch(c) { if (this.peek != c) return !1; this.peek = " "; return !0 }
-  scan() {
-    // 跳过空白
-    for (; this.canRead(); this.readch()) {
-      if (this.peek === ' ' || this.peek === "\t") continue;
-      else if (this.peek === "\n") this.line += 1;
-      else break;
-    }
-
-    if (!this.canRead()) return Token.EOF;
-    var t = this.ptr;
-    switch (this.peek) {
-      case '&':
-        if (this.readch('&')) return Word.and;
-        else return new Token('&');
-      case '|':
-        if (this.readch('|')) return Word.or;
-        else return new Token('|');
-      case '=':
-        if (this.readch('=')) return Word.eq;
-        if (this.isch('>')) return Word.ex;
-        else return new Token('=');
-      case '!':
-        if (this.readch('=')) return Word.ne;
-        else return new Token('!');
-      case '<':
-        if (this.readch('=')) return Word.le;
-        else return new Token('<');
-      case '>':
-        if (this.readch('=')) return Word.ge;
-        else return new Token('>');
-      case '-':
-        if (this.readch('>')) return Word.gs;
-        else if (this.isch('-')) return new Token("--");
-        else if (this.isch('=')) return new Token("-=");
-        else return new Token('-');
-      case '+':
-        if (this.readch('+')) return new Token("++");
-        else if (this.isch('=')) return new Token("+=");
-        else return new Token('+');
-      case '*':
-        if (this.readch('=')) return new Token("*=");
-        else return new Token('*');
-      case '/':
-        if (this.readch('=')) return new Token("/=");
-        else return new Token('/');
-      case '%':
-        if (this.readch('=')) return new Token("%=");
-        else return new Token('%');
-    }
-    if (this.isUnquotedStringStart()) {
-      var b = this.readStringUnquoted();
-      var w = this.words.get(b);
-      if (w != void 0) return w;
-      w = new Word(b, Tag.ID);
-      this.words.put(b, w);
-      return w
-    }
-    if (/\d/.test(this.peek)) return this.readNumber();
-    if (this.peek == "`") return new VaniCmdLiteral(this.readStringUntil("`"));
-    if (this.peek == '"') return new StringLiteral(this.readStringUntil('"'));
-    if (this.peek == '@') return this.readSelector();
-    if (!this.canRead()) return Token.EOF;
-    var t = new Token(this.peek);
-    this.peek = " ";
-    return t
-  }
-
-  readNumber() {
-    var v = 0;
-    do {
-      v = 10 * v + Number(this.peek);
-      this.readch()
-    } while (/\d/.test(this.peek))
-    if (this.peek != ".") return new NumericLiteral(v);
-    var x = v, d = 10;
-    for (; this.canRead();) {
-      this.readch();
-      if (!/\d/.test(this.peek)) break;
-      x += Number(this.peek) / d;
-      d *= 10;
-    }
-    return new NumericLiteral(x)
-  }
-
-  readStringUntil(terminator) {
-    var result = ""
-      , escaped = false;
-    while (this.canRead()) {
-      this.readch();
-      if (escaped) {
-        if (this.peek == terminator || this.peek == "\\") {
-          result += this.peek;
-        } else if (this.peek == "n") {
-          result += "\n";
-        } else {
-          result += this.peek;
-        }
-        escaped = false;
-      } else if (this.peek == "\\") {
-        escaped = true;
-      } else if (this.peek == terminator) {
-        this.readch();
-        return result;
-      } else {
-        result += this.peek;
-      }
-    }
-  }
-
-  isUnquotedStringStart() {
-    return /[a-zA-Z_\u4e00-\u9fa5]/.test(this.peek)
-  }
-
-  readStringUnquoted() {
-    var result = "";
-    if (!this.isUnquotedStringStart()) return "";
-    result += this.peek;
-    while (this.canRead()) {
-      this.readch();
-      if (!/[a-zA-Z0-9_\u4e00-\u9fa5]/.test(this.peek)) break;
-      result += this.peek;
-    }
-    return result
-  }
-
-  readSelector() {
-    var v = "@", s;
-    if (this.peek == '@') {
-      this.readch();
-      v += s = this.readStringUnquoted();
-    }
-
-    if (!s)
-      return new Token('@');
-
-    if (this.peek != "[") return new SelectorLiteral(v);
-    else {
-      v += "[" + this.readStringUntil("]") + "]";
-      return new SelectorLiteral(v);
-    }
-  }
-}
-
-class Env {
-  constructor(n) {
-    this.table = new HashTable();
-    this.prev = n;
-  }
-
-  put(w, i) { this.table.put(w.uid, i) }
-
-  get(w) {
-    for (var i = this; i != void 0; i = i.prev) {
-      var found = i.table.get(w.uid);
-      if (found != void 0) return found;
-    }
-    return void 0
-  }
 }
 
 class Type extends Word {
@@ -299,56 +124,296 @@ class Type extends Word {
   }
 }
 
-function genScb(e1, o1, op, e2, o2) {
-  // scb ply op <dest> <obj1> <op> <victim> <obj2>
-  if (e2 && o2) return `scb ply op ${e1} ${o1} ${op} ${e2} ${o2}`;
-  // seb ply <add|set> <victim> <obj>
-  else if (e2) return `scb ply ${op} ${e1} ${o1} ${e2}`;
+var Lexer = function () {
+  function readNext() {
+    if (ptr > str.length) throw new Error("String Ends");
+    return str[ptr++]
+  }
+  function canRead() { return ptr <= str.length }
+  function reserve(w) { words.put(w.lexeme, w) }
+  function readch(c) {
+    peek = readNext();
+    if (peek != c) return !1;
+    peek = " ";
+    return !0
+  }
+  function isch(c) { if (peek != c) return !1; peek = " "; return !0 }
+  function scan() {
+    // 跳过空白
+    for (; canRead(); readch()) {
+      if (peek === ' ' || peek === "\t") continue;
+      else if (peek === "\n") line += 1;
+      else break;
+    }
+
+    if (!canRead()) return Token.EOF;
+    var t = ptr;
+    switch (peek) {
+      case '&':
+        if (readch('&')) return Word.and;
+        else return new Token('&');
+      case '|':
+        if (readch('|')) return Word.or;
+        else return new Token('|');
+      case '=':
+        if (readch('=')) return Word.eq;
+        if (isch('>')) return Word.ae;
+        else return new Token('=');
+      case '!':
+        if (readch('=')) return Word.ne;
+        else return new Token('!');
+      case '<':
+        if (readch('=')) return Word.le;
+        else return new Token('<');
+      case '>':
+        if (readch('=')) return Word.ge;
+        else return new Token('>');
+      case '-':
+        if (readch('>')) return Word.gs;
+        else if (isch('-')) return new Token("--");
+        else if (isch('=')) return new Token("-=");
+        else return new Token('-');
+      case '+':
+        if (readch('+')) return new Token("++");
+        else if (isch('=')) return new Token("+=");
+        else return new Token('+');
+      case '*':
+        if (readch('=')) return new Token("*=");
+        else return new Token('*');
+      case '/':
+        if (readch('=')) return new Token("/=");
+        else return new Token('/');
+      case '%':
+        if (readch('=')) return new Token("%=");
+        else return new Token('%');
+    }
+    if (isUnquotedStringStart()) {
+      var b = readStringUnquoted();
+      var w = words.get(b);
+      if (w != void 0) return w;
+      w = new Word(b, Tag.ID);
+      words.put(b, w);
+      return w
+    }
+    if (/\d/.test(peek)) return readNumber();
+    if (peek == "`") return new VaniCmdLiteral(readStringUntil("`"));
+    if (peek == '"') return new StringLiteral(readStringUntil('"'));
+    if (peek == '@') return readSelector();
+    if (!canRead()) return Token.EOF;
+    var t = new Token(peek);
+    peek = " ";
+    return t
+  }
+
+  function readNumber() {
+    var v = 0;
+    do {
+      v = 10 * v + Number(peek);
+      readch()
+    } while (/\d/.test(peek))
+    if (peek != ".") return new NumericLiteral(v);
+    var x = v, d = 10;
+    for (; canRead();) {
+      readch();
+      if (!/\d/.test(peek)) break;
+      x += Number(peek) / d;
+      d *= 10;
+    }
+    return new NumericLiteral(x)
+  }
+
+  function readStringUntil(terminator) {
+    var result = ""
+      , escaped = false;
+    while (canRead()) {
+      readch();
+      if (escaped) {
+        if (peek == terminator || peek == "\\") {
+          result += peek;
+        } else if (peek == "n") {
+          result += "\n";
+        } else {
+          result += peek;
+        }
+        escaped = false;
+      } else if (peek == "\\") {
+        escaped = true;
+      } else if (peek == terminator) {
+        readch();
+        return result;
+      } else {
+        result += peek;
+      }
+    }
+  }
+
+  function isUnquotedStringStart() {
+    return /[a-zA-Z_\u4e00-\u9fa5]/.test(peek)
+  }
+
+  function readStringUnquoted() {
+    var result = "";
+    if (!isUnquotedStringStart()) return "";
+    result += peek;
+    while (canRead()) {
+      readch();
+      if (!/[a-zA-Z0-9_\u4e00-\u9fa5]/.test(peek)) break;
+      result += peek;
+    }
+    return result
+  }
+
+  function readSelector() {
+    var v = "@", s;
+    if (peek == '@') {
+      readch();
+      v += s = readStringUnquoted();
+    }
+
+    if (!s)
+      return new Token('@');
+
+    if (peek != "[") return new SelectorLiteral(v);
+    else {
+      v += "[" + readStringUntil("]") + "]";
+      return new SelectorLiteral(v);
+    }
+  }
+
+  var words = new HashTable()
+    , str = ""
+    , ptr = 0
+    , peek = " "
+    , line = 1;
+  function init(s) {
+    words = new HashTable(),
+      str = s,
+      ptr = 0,
+      peek = " ",
+      line = 1;
+    /* Reserved words */
+    reserve(new Word("if", Tag.IF));
+    reserve(new Word("else", Tag.ELSE));
+    reserve(new Word("while", Tag.WHILE));
+    reserve(new Word("do", Tag.DO));
+    reserve(new Word("break", Tag.BREAK));
+    reserve(new Word("chain", Tag.CHAIN));
+    reserve(new Word("pulse", Tag.PULSE));
+    reserve(new Word("repeating", Tag.REPEATING));
+    reserve(new Word("module", Tag.MODULE));
+    reserve(new Word("execute", Tag.EXECUTE));
+    reserve(new Word("delayh", Tag.DELAYH));
+    reserve(Word.False);
+    reserve(Word.True);
+    reserve(Type.Int);
+    reserve(Type.Bool);
+    reserve(Type.String);
+    reserve(Type.Selector);
+    reserve(Type.Vector);
+  }
+
+  return {
+    scan: scan,
+    init: init,
+    getLine() { return line }
+  }
+}();
+
+class Env {
+  constructor(n) {
+    this.table = new HashTable();
+    this.prev = n;
+  }
+
+  put(w, i) { this.table.put(w.uid, i) }
+
+  get(w) {
+    for (var i = this; i != void 0; i = i.prev) {
+      var found = i.table.get(w.uid);
+      if (found != void 0) return found;
+    }
+    return void 0
+  }
 }
-class CB { constructor(cmd) { this.cmd = cmd; } }
-class TACBaseBlock extends Array { constructor() { super() } }
+
+class CB {
+  constructor(cmd) { this.cmd = cmd; }
+  static commandblocks = [];
+  static scb = "bkstage";
+  static emit(c) { CB.commandblocks.push(c) }
+  static emitCmd(c) { CB.commandblocks.push(new CB(c)) }
+  static emitScb(e1, o1, op, e2, o2) {
+    var t = "";
+    // scb ply op <dest> <obj1> <op> <victim> <obj2>
+    if (e2 && o2) t = `scb ply op ${e1} ${o1} ${op} ${e2} ${o2}`;
+    // seb ply <add|set> <victim> <obj>
+    else if (e2) t = `scb ply ${op} ${e1} ${o1} ${e2}`;
+    CB.commandblocks.push(new CB(t))
+  }
+}
+class TACBaseBlock extends Array {
+  constructor() { super(); this.chain = [] }
+  gen() {
+    for (var k of this)
+      if (k.type == "assign" || k.type == "assigncomp") k.gen();
+    this.chain = CB.commandblocks;
+    CB.commandblocks = [];
+  }
+}
 class TAC extends Array { constructor(m) { super(); this.mode = m } }
-class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = 0 } mark() { this.onUse++ } }
+class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = [] } mark(i) { this.onUse.push(i) } }
 class TACDelayH { constructor(t) { this.type = "delayh"; this.delay = t } }
 class TACGoto { constructor(l, c, t) { if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
-class TACVanilla { constructor(c) { this.cmd = c } gen() { return new CB(this.cmd) } }
+class TACVanilla { constructor(c) { this.cmd = c } gen() { CB.emitCmd(this.cmd) } }
 class TACAssign {
   constructor(i, e, o) { if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; }
   getIdTag() { return this.id.op.tag }
-  getExprTag() { return this.expr.op.tag }
+  getExprTag() { if (this.expr.tag == ExprTag.CONST) return this.expr.op.tag; else return this.expr.tag }
   gen() {
     // assign
     if (this.type == "assign") {
       var s = "", t = "", it = this.getIdTag(), et = this.getExprTag();
-      if ((it == Tag.ID || it == Tag.TEMP) && this.id.type == Type.Int) t = this.id.toString(), s = this.scb;
+      if ((it == Tag.ID || it == Tag.TEMP) && this.id.type == Type.Int) t = this.id.toString(), s = CB.scb;
       if (it == Tag.GS) t = this.id.target.toString(), s = this.id.scb.toString();
       switch (et) {
         case Tag.NUM:
-          return new CB(genScb(t, s, "set", this.expr.toString()));
-        case Tag.SELECTOR:
-          t = `scb ply set ${v} 0\nexe ${k.expr.toString()} ~~~ scb ply add ${k.id.toString()} ${this.scb} 1`;
+          CB.emitScb(t, s, "set", this.expr.toString());
           break;
-        case Tag.GS:
-          return new CB(genScb(t, s, "=", this.expr.target.toString(), this.expr.scb.toString()));
-        case Tag.ID: case Tag.TEMP:
-          return new CB(genScb(t, s, "=", this.expr.toString(), this.scb));
-        default:
-          t = `scb ply op ${v} = ${k.expr.expr1.toString()} ${this.scb}\nscb ply op ${k.id.toString()} ${this.scb} ${et}= ${k.expr.expr2.toString()} ${this.scb}`;
+        case ExprTag.SELECTOR:
+          CB.emitScb(t, s, "set", "0");
+          CB.emitCmd(`exe ${this.expr.toString()} ~~~ scb ply add ${t} ${s} 1`);
+          break;
+        case ExprTag.GS:
+          CB.emitScb(t, s, "=", this.expr.target.toString(), this.expr.scb.toString());
+          break;
+        case ExprTag.ID: case ExprTag.TEMP:
+          CB.emitScb(t, s, "=", this.expr.toString(), CB.scb);
+        case ExprTag.ARITH:
+          if (this.expr.expr2 && this.expr.expr2.tag == Tag.GS)
+            CB.emitScb(t, s, "=", this.expr.expr1.target.toString(), this.expr.expr1.scb.toString());
+          else CB.emitScb(t, s, "=", this.expr.expr1.toString(), CB.scb);
+          if (this.expr.expr2 && this.expr.expr2.tag == Tag.GS)
+            CB.emitScb(t, s, et + "=", this.expr.expr2.target.toString(), this.expr.expr2.scb.toString());
+          else CB.emitScb(t, s, "=", this.expr.expr2.toString(), CB.scb);
           break;
       }
-    } else { // assigncomp
-
-
+    } else if (this.type == "assigncomp") {
+      if (this.id.type == Type.Selector && this.expr.type == Type.String && this.expr.tag == ExprTag.CONST) {
+        if (this.op.tag == "+=")
+          CB.emitCmd(`tag ${this.id.toString()} add ${this.expr.toString()}`)
+        if (this.op.tag == "-=")
+          CB.emitCmd(`tag ${this.id.toString()} remove ${this.expr.toString()}`)
+      }
     }
   }
 }
 
 /** Abstract Syntax Tree Node */
 class ASTNode {
-  constructor() { this.lexline = Lexer.line; this.labels = 0; }
+  constructor() { this.lexline = Lexer.getLine(); this.labels = 0; }
   static labels = 0;
   /** Throw an error */
-  error(s) { throw new Error("Near line " + Lexer.line + ": " + s) }
+  error(s) { throw new Error("Near line " + this.lexline + ": " + s) }
   /** 
    * Assign a new label.
    * @returns {TACLabel} Label
@@ -365,18 +430,18 @@ class ASTNode {
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitif(t, l) { l.mark(); Parser.appendObj(new TACGoto(l, 1, t)) }
+  emitif(t, l) { var i = new TACGoto(l, 1, t); l.mark(i); Parser.appendObj(i) }
   /**
    * Gen a direct goto.
    * @param {TACLabel} l - Label 
    */
-  emitgoto(l) { l.mark(); Parser.appendObj(new TACGoto(l)) }
+  emitgoto(l) { var i = new TACGoto(l); l.mark(i); Parser.appendObj(i) }
   /**
    * Gen an iffalse-goto.
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitiffalse(t, l) { l.mark(); Parser.appendObj(new TACGoto(l, 2, t)) }
+  emitiffalse(t, l) { var i = new TACGoto(l, 2, t); l.mark(i); Parser.appendObj(i) }
   /** 
    * Gen a TAC operation.
    * @param {Id | GetScore} i - Condition
@@ -558,7 +623,7 @@ class Expr extends Stmt {
    * @param {Token} t - Token representing the expression
    * @param {Type} p - Type of the expression
    */
-  constructor(t, p) { super(); this.op = t; this.type = p; this.tag = Tag.EXPR }
+  constructor(t, p) { super(); this.op = t; this.type = p; this.tag = ExprTag.EXPR }
   /** Gen as an inline expr, or as the right-hand-side of a TAC */
   genRightSide() { return this }
   /** Gen as a term in TAC, or an address */
@@ -596,7 +661,7 @@ class Id extends Expr {
    * @param {Type} p - Type of the identifier
    * @param {Number} b - UID of the identifier
    */
-  constructor(id, p, b) { super(id, p); this.offset = b }/* offset为相对地址 */
+  constructor(id, p, b) { super(id, p); this.offset = b; this.tag = ExprTag.ID }/* offset represents UID */
 }
 
 /** Expression with an operator. @extends Expr */
@@ -627,6 +692,7 @@ class Arith extends Op {
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = Type.max(x1.type, x2.type);
+    this.tag = ExprTag.ARITH;
     if (this.type == void 0) this.error("Type mismatch")
   }
   genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
@@ -650,6 +716,7 @@ class GetScore extends Op {
     this.scb = x1;
     this.target = x2;
     this.type = Type.Vector;
+    this.tag = ExprTag.GS;
     if (x1.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x1.type.lexeme);
     if (x2.type != Type.String && x2.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x2.type.lexeme);
   }
@@ -673,6 +740,7 @@ class Unary extends Op {
     super(tok, void 0);
     this.expr = x;
     this.type = Type.max(Type.Int, x.type);
+    this.tag = ExprTag.UNARY;
     if (this.type == void 0) this.error("Type mismatch")
   }
   genRightSide() { return new Unary(this.op, this.expr.reduce()) }
@@ -680,7 +748,7 @@ class Unary extends Op {
 }
 
 /** Temp variable implement. @extends Expr */
-class Temp extends Expr { constructor(p) { super(Word.temp, p); this.number = ++Temp.count } toString() { return "t" + this.number } }
+class Temp extends Expr { constructor(p) { super(Word.temp, p); this.number = ++Temp.count; this.tag = ExprTag.TEMP } toString() { return "t" + this.number } }
 
 /** Constant implement @extends Expr */
 class Constant extends Expr {
@@ -690,7 +758,8 @@ class Constant extends Expr {
    */
   constructor(a, b) {
     if (b) super(a, b);
-    else super(new NumericLiteral(a), Type.Int)
+    else super(new NumericLiteral(a), Type.Int);
+    this.tag = ExprTag.CONST
   }
   static True = new Constant(Word.True, Type.Bool);
   static False = new Constant(Word.False, Type.Bool);
@@ -711,6 +780,7 @@ class AssignExpr extends Expr {
     this.id = i;
     this.expr = x;
     if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
+    this.tag = ExprTag.ASSIGN
   }
   /** Type check */
   check(l, r) {
@@ -735,8 +805,17 @@ class CompoundAssignExpr extends AssignExpr {
    * @param {Expr} x - Right-hand-side expression
    * @param {Token} op - Operator
    */
-  constructor(i, x, op) { super(i, x); this.op = op; }
-  gen() { this.emitassigncomp(this.id.toAddr(), this.op, this.expr.genRightSide().toAddr()) }
+  constructor(i, x, op) { super(i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
+  gen() {
+    if (this.id.type == Type.Selector && this.expr.type == Type.String) {
+      this.emitassigncomp(this.id.toAddr(), this.op, this.expr.genRightSide().toAddr())
+    } else {
+      /*var t = new Temp(this.type);
+      this.emitassign(t, this.expr.genRightSide().toAddr());
+      this.emitassign(this.id, new Arith(new Token(this.op.tag.replace("=", "")), this.id, t))*/
+      this.emitassign(this.id, this.expr.reduce().toAddr())
+    }
+  }
 }
 
 /** Prefix expression implement. @extends CompoundAssignExpr */
@@ -749,6 +828,7 @@ class Prefix extends CompoundAssignExpr {
     super(i, i, op);
     if (i.op.tag != Tag.ID)
       this.error("Invalid left-hand side expression in prefix operation");
+    this.tag = ExprTag.PREF
   }
   gen() { this.emitassign(this.id.toAddr(), this.op) }
 }
@@ -768,29 +848,10 @@ class Postfix extends CompoundAssignExpr {
     super(i, i, op);
     if (i.op.tag != Tag.ID && i.op.tag != Tag.GS)
       this.error("Invalid left-hand side expression in postfix operation");
+    this.tag = ExprTag.POSTF
   }
   gen() { this.emitassign(this.id.toAddr(), this.op) }
   genRightSide() { this.gen(); return this.id }
-}
-
-/** 
- * Vanilla command implement. 
- * Produces direct access to vanilla command in MCBE.
- * @extends Expr 
- */
-class VanillaCmd extends Expr {
-  /**
-   * @param {Token} tok - Token of vanilla command
-   */
-  constructor(tok) { super(tok, Type.Bool); this.cmd = tok; }
-  gen() { this.emitvanilla(this.cmd.toString()) }
-  toString() { return this.cmd.toString() }
-  reduce() {
-    var x = this.genRightSide()  // = this
-      , t = new Temp(this.type);
-    this.emitassign(t.toAddr(), x.toAddr());
-    return t
-  }
 }
 
 /** Selector implement. @extends Expr */
@@ -798,7 +859,7 @@ class Selector extends Expr {
   /**
    * @param {Token} tok - Token of selector
    */
-  constructor(tok) { super(tok, Type.Selector); this.sel = tok; }
+  constructor(tok) { super(tok, Type.Selector); this.sel = tok; this.tag = ExprTag.SELECTOR }
   reduce() {
     var t = new Temp(Type.Int);
     this.emitassign(t.toAddr(), this.toAddr());
@@ -904,9 +965,36 @@ class Rel extends Logical {
   }
 }
 
+/** 
+ * Vanilla command implement. 
+ * Produces direct access to vanilla command in MCBE.
+ * @extends Expr 
+ */
+class VanillaCmd extends Expr {
+  /**
+   * @param {Token} tok - Token of vanilla command
+   */
+  constructor(tok) { super(tok, Type.Bool); this.cmd = tok; this.tag = ExprTag.VANICMD }
+  gen() { this.emitvanilla(this.cmd.toString()) }
+  toString() { return this.cmd.toString() }
+  genRightSide() {
+    var f = this.newlabel()
+      , a = this.newlabel()
+      , temp = new Temp(this.type);
+    this.jumping(0, f);
+    this.emitassign(temp, Constant.True);
+    this.emitgoto(a);
+    this.emitlabel(f);
+    this.emitassign(temp, Constant.False);
+    this.emitlabel(a);
+    return temp
+  }
+  reduce() { return this.genRightSide() }
+}
+
 class Parser {
   constructor(str) {
-    this.lex = new Lexer(str); // 词法分析器
+    Lexer.init(str);
     this.look = void 0; // 向前看词法单元
     this.used = 0; // 用于声明变量的存储位置
     this.top = new Env(void 0); // 当前或顶层符号表
@@ -919,8 +1007,8 @@ class Parser {
 
   static append(a) { Parser.result += a }
   static appendObj(a) { Parser.resultObj.push(a) }
-  move() { this.look = this.lex.scan(); }
-  error(s) { throw new Error("Near line " + this.lex.line + ": " + s) }
+  move() { this.look = Lexer.scan(); }
+  error(s) { throw new Error("Near line " + Lexer.getLine() + ": " + s) }
   match(t) { if (this.look.tag == t) this.move(); else this.error("Syntax error: Unexpected " + this.look.tag) }
   errorUnexp() { this.error("Syntax error: Unexpected " + this.look.tag) }
 
@@ -935,13 +1023,37 @@ class Parser {
       s.emitlabel(after);
       // Remove unused label and
       // Cut into base blocks
-      var r = new TAC(Parser.resultObj.mode), c = 1, d = 0, e = 0;
-      // c: label counter, d: baseblock counter, e: counter of inst except label in current bb
+      var r = new TAC(Parser.resultObj.mode), c = 1, d = 0, e = 0, f = null;
+      // c: label counter, d: baseblock counter, 
+      // e: counter of inst except label in current bb
+      // f: current bb's first label
       for (var a of Parser.resultObj) {
-        var rd = (r[d] ? r[d] : (e = 0, r[d] = new TACBaseBlock()));
-        if (a.type == "label") a.onUse ? (a.label = c++, (e ? (e = 0, r[++d] = new TACBaseBlock()).push(a) : rd.push(a))) : 0;
-        else if (a.type == "if" || a.type == "iffalse" || a.type == "goto") rd.push(a), d++;
-        else rd.push(a), e++;
+        var rd = (r[d] ? r[d] : (r[d] = new TACBaseBlock()));
+        /* Label merging */
+        if (a.type == "label")
+          /* If label is used */
+          a.onUse.length && (
+            (e ? (
+              /* And if this isn't a new baseblock */
+              /* i.e. there's other inst except label */
+              a.label = c++, e = 0, r[++d] = new TACBaseBlock()
+              /* Then create a new baseblock */
+              /* Push this label in it */
+              /* And record as this baseblock's first label */
+            ).push(f = a) : (
+              /* If this is a new baseblock */
+              /* i.e. no inst except label */
+              /* If baseblock's first label recorded */
+              f ? a.onUse.forEach(ele => {
+                /* Change all the goto inst which targeted */
+                /* this label to baseblock's first label */
+                ele.label = f
+              }) : (a.label = c++, rd.push(f = a))
+              /* Or consider current label as the first label */
+            ))
+          );
+        else if (a.type == "if" || a.type == "iffalse" || a.type == "goto") rd.push(a), d++, e = 0, f = null;
+        else rd.push(a), e++, f = null;
       }
       Parser.modules.push(r);
     }
@@ -987,6 +1099,8 @@ class Parser {
     this.used++;
     if (this.look.tag == ';') {
       this.match(";");
+      if (p != Type.Int && p != Type.Bool)
+        this.error("Invalid constant declaration: Constant must have an initial value.")
       return new AssignExpr(id, new Constant(new NumericLiteral(0)));
     } else if (this.look.tag == '=') {
       this.move();
@@ -1224,53 +1338,27 @@ function Generator(W) {
   function getReg(v) {
     if (v.tag == Tag.TEMP) { }
     if (v.tag == Tag.ID) {
-      //varDesc[v.offset] ? 
     }
   }
   function CP(M) {
     var chain = [];
-    for (var k of B) {
-      var t = "";
-      switch (k.type) {
-        case "assign":
-          var s = "", t = "", it = k.getIdTag(), et = k.getExprTag();
-          if ((it == Tag.ID || it == Tag.TEMP) && k.id.type == Type.Int) t = k.id.toString(), s = this.scb;
-          if (it == Tag.GS) t = k.id.target.toString(), s = k.id.scb.toString();
-          switch (et) {
-            case Tag.NUM:
-              t = genScb(t, s, "set", k.expr.toString());
-              break;
-            case Tag.SELECTOR:
-              t = `scb ply set ${v} 0\nexe ${k.expr.toString()} ~~~ scb ply add ${k.id.toString()} ${this.scb} 1`;
-              break;
-            case Tag.GS:
-              t = genScb(t, s, "=", k.expr.target.toString(), k.expr.scb.toString());
-              break;
-            case Tag.ID: case Tag.TEMP:
-              t = `scb ply op ${v} = ${k.expr.toString()} ${this.scb}`;
-              t = genScb(t, s, "=", k.expr.toString(), scb);
-              break;
-            case Tag.GS:
-              t = `scb ply op ${v} = ${k.expr.target.toString()} ${k.expr.scb.toString()}`;
-              break;
-            default:
-              t = `scb ply op ${v} = ${k.expr.expr1.toString()} ${this.scb}\nscb ply op ${k.id.toString()} ${this.scb} ${et}= ${k.expr.expr2.toString()} ${this.scb}`;
-              break;
-          }
-      }
-      chain.push(new CB(t));
-    }
+    for (var BB of M)
+      BB.gen();
+
   }
 }
+
+var temp1 = {};
 
 function run() {
   var str = document.getElementById("input").value;
   Token.uid = 0;
   ASTNode.labels = 0;
   Temp.count = 0;
+  CB.commandblocks = [];
   var parse = new Parser(str);
   parse.program();
-  console.log(Parser.modules);
+  console.log(temp1 = Parser.modules);
   //var k = new CommandGenerator(Parser.modules[0][0]);
   //k.gen()
 }

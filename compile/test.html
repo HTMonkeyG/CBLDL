@@ -7,15 +7,18 @@ chain pulse {
   i = "a" -> @e;
   j = "a" -> @e + @e;
   i = i - j * i % 10;
+  @e += "aaa";
+  @a -= "bbb";
   if (i >= 100) `say i`;
   if (@e[type=bee]) `say j`;
   if (@e[tag=son] > 100) `say k`;
   i = i + 1;
   j = i++ + --i + - - i;
   int k = (i++) + (i--) * (++i);
-  `say a`;
+  bool m = `say a`;
   if (`say a`) `say b`;
 }
+
 </textarea>
 <!--<textarea id="output" rows="50" cols="30" style="resize: none;width: 200px;display: inline-block;"></textarea>-->
 <br>
@@ -30,4 +33,13 @@ int h;<br>
 i += i + 1 * i;<br>
 h = i * j + j / k - k % j;<br>
 "a" -> "b" += 1;<br>
+</p>
+<p>
+chain pulse {<br>
+  int entityCtr = @e;<br>
+  if(entityCtr >= 1800) {<br>
+    `kill @e[type=!player]`;<br>
+    `say Entity Cleared!`<br>
+  }<br>
+}<br>
 </p>
