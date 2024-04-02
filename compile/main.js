@@ -59,7 +59,11 @@ const ExprTag = {
   ASSIGN: 0x8009,
   ASSICOMP: 0x800A,
   PREF: 0x800B,
-  POSTF: 0x800C
+  POSTF: 0x800C,
+  REL: 0x800D,
+  NOT: 0x800E,
+  OR: 0x800E,
+  AND: 0x800F
 };
 
 const Mode = { CP: 0, CR: 1, M: 2, DECL: 3 };
@@ -337,7 +341,13 @@ class Env {
 }
 
 class CB {
-  constructor(cmd) { this.cmd = cmd; }
+  constructor(cmd) { this.cmd = cmd; this.rsctl = !0; this.condition = !0; this.type = 0 }
+  /* bit0: condition */
+  /* bit1: redstone */
+  /* bit2-3: type */
+  setCondition(t) { this.condition = t }
+  setRedstone(t) { this.redstone = t }
+  setType(t) { this.type = t }
   static commandblocks = [];
   static scb = "bkstage";
   static emit(c) { CB.commandblocks.push(c) }
@@ -352,7 +362,7 @@ class CB {
   }
 }
 class TACBaseBlock extends Array {
-  constructor() { super(); this.chain = [] }
+  constructor(id) { super(); this.chain = []; this.id = id }
   gen() {
     for (var k of this)
       if (k.type == "assign" || k.type == "assigncomp") k.gen();
@@ -361,7 +371,7 @@ class TACBaseBlock extends Array {
   }
 }
 class TAC extends Array { constructor(m) { super(); this.mode = m } }
-class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = [] } mark(i) { this.onUse.push(i) } }
+class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = []; this.baseblock = null } mark(i) { this.onUse.push(i) } }
 class TACDelayH { constructor(t) { this.type = "delayh"; this.delay = t } }
 class TACGoto { constructor(l, c, t) { if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
 class TACVanilla { constructor(c) { this.cmd = c } gen() { CB.emitCmd(this.cmd) } }
@@ -910,7 +920,7 @@ class Or extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2) }
+  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.OR }
   jumping(t, f) {
     var label = t != 0 ? t : this.newlabel();
     this.expr1.jumping(label, 0);
@@ -926,7 +936,7 @@ class And extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2) }
+  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.AND }
   jumping(t, f) {
     var label = f != 0 ? f : this.newlabel();
     this.expr1.jumping(0, label);
@@ -941,7 +951,7 @@ class Not extends Logical {
    * @param {Token} tok - Token of operator
    * @param {Expr} x2 - Expression
    */
-  constructor(tok, x2) { super(tok, x2, x2) }
+  constructor(tok, x2) { super(tok, x2, x2); this.tag = ExprTag.NOT }
   jumping(t, f) { this.expr2.jumping(f, t); }
   toString() { return this.op.toString() + " " + this.expr2.toString() }
 }
@@ -953,7 +963,7 @@ class Rel extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2) }
+  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.REL }
   check(p1, p2) {
     if (p1 == p2) return Type.Bool;
     else if (p1 == Type.Selector && p2 == Type.Int) return Type.Bool;
@@ -965,7 +975,7 @@ class Rel extends Logical {
   }
 }
 
-/** 
+/**
  * Vanilla command implement. 
  * Produces direct access to vanilla command in MCBE.
  * @extends Expr 
@@ -1028,28 +1038,21 @@ class Parser {
       // e: counter of inst except label in current bb
       // f: current bb's first label
       for (var a of Parser.resultObj) {
-        var rd = (r[d] ? r[d] : (r[d] = new TACBaseBlock()));
-        /* Label merging */
+        var rd = (r[d] ? r[d] : (r[d] = new TACBaseBlock(d)));
         if (a.type == "label")
           /* If label is used */
           a.onUse.length && (
             (e ? (
               /* And if this isn't a new baseblock */
               /* i.e. there's other inst except label */
-              a.label = c++, e = 0, r[++d] = new TACBaseBlock()
+              a.label = c++, e = 0, a.baseblock = r[++d] = new TACBaseBlock(d)
               /* Then create a new baseblock */
-              /* Push this label in it */
-              /* And record as this baseblock's first label */
-            ).push(f = a) : (
+              /* And push this label in it */
+            ).push(a) : (
               /* If this is a new baseblock */
               /* i.e. no inst except label */
-              /* If baseblock's first label recorded */
-              f ? a.onUse.forEach(ele => {
-                /* Change all the goto inst which targeted */
-                /* this label to baseblock's first label */
-                ele.label = f
-              }) : (a.label = c++, rd.push(f = a))
-              /* Or consider current label as the first label */
+              a.label = c++, (a.baseblock = rd).push(a)
+              /* Just add the label into the baseblock */
             ))
           );
         else if (a.type == "if" || a.type == "iffalse" || a.type == "goto") rd.push(a), d++, e = 0, f = null;
@@ -1341,10 +1344,26 @@ function Generator(W) {
     }
   }
   function CP(M) {
-    var chain = [];
-    for (var BB of M)
-      BB.gen();
-
+    var chain = [new CB("scb ply set state bkstage 0")];
+    M.forEach(function (BB, i) {
+      BB.gen(); BB.id = i
+    });
+    M.forEach(function (BB, i) {
+      chain.push(new CB("scb ply test state bkstage 1"));
+      BB.chain.forEach(function (inst) {
+        chain.push(inst);
+      });
+      var lastinst = BB[BB.length - 1];
+      switch (lastinst.type) {
+        case "goto":
+          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
+          break;
+        case "iffalse":
+          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
+          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
+          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
+      }
+    });
   }
 }
 
