@@ -53,9 +53,9 @@ const ExprTag = {
   SELECTOR: 0x8003,
   CONST: 0x8004,
   UNARY: 0x8005,
-  VANICMD: 0x8006,
-  ID: 0x8007,
-  TEMP: 0x8008,
+  ID: 0x8006,
+  TEMP: 0x8007,
+  VANICMD: 0x8008,
   ASSIGN: 0x8009,
   ASSICOMP: 0x800A,
   PREF: 0x800B,
@@ -371,51 +371,15 @@ class TACBaseBlock extends Array {
   }
 }
 class TAC extends Array { constructor(m) { super(); this.mode = m } }
-class TACLabel { constructor(n) { this.type = "label"; this.label = n; this.onUse = []; this.baseblock = null } mark(i) { this.onUse.push(i) } }
-class TACDelayH { constructor(t) { this.type = "delayh"; this.delay = t } }
-class TACGoto { constructor(l, c, t) { if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
-class TACVanilla { constructor(c) { this.cmd = c } gen() { CB.emitCmd(this.cmd) } }
-class TACAssign {
-  constructor(i, e, o) { if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; }
+class TACInst { constructor(t) { this.type = t; this.lastWrite = []; this.lastRead = [] } }
+class TACLabel extends TACInst { constructor(n) { super("label"); this.label = n; this.onUse = []; this.baseblock = null } mark(i) { this.onUse.push(i) } }
+class TACDelayH extends TACInst { constructor(t) { super("delayh"); this.delay = t } }
+class TACGoto extends TACInst { constructor(l, c, t) { super(void 0); if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
+class TACVanilla extends TACInst { constructor(c) { super("vanilla"); this.cmd = c } gen() { CB.emitCmd(this.cmd) } }
+class TACAssign extends TACInst {
+  constructor(i, e, o) { super(void 0); if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; }
   getIdTag() { return this.id.op.tag }
   getExprTag() { if (this.expr.tag == ExprTag.CONST) return this.expr.op.tag; else return this.expr.tag }
-  gen() {
-    // assign
-    if (this.type == "assign") {
-      var s = "", t = "", it = this.getIdTag(), et = this.getExprTag();
-      if ((it == Tag.ID || it == Tag.TEMP) && this.id.type == Type.Int) t = this.id.toString(), s = CB.scb;
-      if (it == Tag.GS) t = this.id.target.toString(), s = this.id.scb.toString();
-      switch (et) {
-        case Tag.NUM:
-          CB.emitScb(t, s, "set", this.expr.toString());
-          break;
-        case ExprTag.SELECTOR:
-          CB.emitScb(t, s, "set", "0");
-          CB.emitCmd(`exe ${this.expr.toString()} ~~~ scb ply add ${t} ${s} 1`);
-          break;
-        case ExprTag.GS:
-          CB.emitScb(t, s, "=", this.expr.target.toString(), this.expr.scb.toString());
-          break;
-        case ExprTag.ID: case ExprTag.TEMP:
-          CB.emitScb(t, s, "=", this.expr.toString(), CB.scb);
-        case ExprTag.ARITH:
-          if (this.expr.expr2 && this.expr.expr2.tag == Tag.GS)
-            CB.emitScb(t, s, "=", this.expr.expr1.target.toString(), this.expr.expr1.scb.toString());
-          else CB.emitScb(t, s, "=", this.expr.expr1.toString(), CB.scb);
-          if (this.expr.expr2 && this.expr.expr2.tag == Tag.GS)
-            CB.emitScb(t, s, et + "=", this.expr.expr2.target.toString(), this.expr.expr2.scb.toString());
-          else CB.emitScb(t, s, "=", this.expr.expr2.toString(), CB.scb);
-          break;
-      }
-    } else if (this.type == "assigncomp") {
-      if (this.id.type == Type.Selector && this.expr.type == Type.String && this.expr.tag == ExprTag.CONST) {
-        if (this.op.tag == "+=")
-          CB.emitCmd(`tag ${this.id.toString()} add ${this.expr.toString()}`)
-        if (this.op.tag == "-=")
-          CB.emitCmd(`tag ${this.id.toString()} remove ${this.expr.toString()}`)
-      }
-    }
-  }
 }
 
 /** Abstract Syntax Tree Node */
@@ -671,7 +635,9 @@ class Id extends Expr {
    * @param {Type} p - Type of the identifier
    * @param {Number} b - UID of the identifier
    */
-  constructor(id, p, b) { super(id, p); this.offset = b; this.tag = ExprTag.ID }/* offset represents UID */
+  constructor(id, p, b) { super(id, p); this.offset = b; this.tag = ExprTag.ID; this.lastRead = null; this.lastWrite = null }
+  /* offset represents UID */
+  toScbString(scb) { return this.target.toString() + " " + scb }
 }
 
 /** Expression with an operator. @extends Expr */
@@ -705,9 +671,9 @@ class Arith extends Op {
     this.tag = ExprTag.ARITH;
     if (this.type == void 0) this.error("Type mismatch")
   }
-  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
+  genRightSide() { return new Arith(this.op, this.expr1.reduce(this.op), this.expr2.reduce(this.op)) }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
-  toAddr() { return new Arith(this.op, this.expr1.reduce().toAddr(), this.expr2.reduce().toAddr()) }
+  toAddr() { return new Arith(this.op, this.expr1.reduce(this.op).toAddr(), this.expr2.reduce(this.op).toAddr()) }
 }
 
 /** 
@@ -732,10 +698,15 @@ class GetScore extends Op {
   }
   genRightSide() { return new GetScore(this.op, this.scb.reduce(), this.target) }
   toString() { return this.scb.toString() + " " + this.op.toString() + " " + this.target.toString() }
-  reduce() {
+  toScbString() { return this.target.toString() + " " + this.scb.toString() }
+  /**
+   * @param {Token} tok - Token of the operator
+   */
+  reduce(tok) {
     var x = this.genRightSide()  // = this
       , t = new Temp(Type.Int);
-    this.emitassign(t.toAddr(), x.toAddr());
+    this.target.type == Type.String ? this.emitassign(t.toAddr(), x.toAddr()) :
+      this.emitassigncomp(t.toAddr(), tok, x.toAddr());
     return t
   }
 }
@@ -753,12 +724,28 @@ class Unary extends Op {
     this.tag = ExprTag.UNARY;
     if (this.type == void 0) this.error("Type mismatch")
   }
-  genRightSide() { return new Unary(this.op, this.expr.reduce()) }
+  reduce() {
+    var x = this.genRightSide()  // = this
+      , t = new Temp(this.type);
+    if (x.op == Word.minus) {
+      this.emitassign(t.toAddr(), new Arith(new Token('*'), new Constant(new NumericLiteral(-1)), x.expr));
+    }
+    return t
+  }
+  genRightSide() {
+    return new Unary(this.op, this.expr.reduce())
+  }
   toString() { return this.op.toString() + " " + this.expr.toString() }
 }
 
 /** Temp variable implement. @extends Expr */
-class Temp extends Expr { constructor(p) { super(Word.temp, p); this.number = ++Temp.count; this.tag = ExprTag.TEMP } toString() { return "t" + this.number } }
+class Temp extends Expr {
+  /**
+   * @param {Type} p - Type of temp
+   */
+  constructor(p) { super(Word.temp, p); this.number = ++Temp.count; this.tag = ExprTag.TEMP; this.lastRead = null; this.lastWrite = null }
+  toString() { return "t" + this.number }
+}
 
 /** Constant implement @extends Expr */
 class Constant extends Expr {
@@ -1318,7 +1305,6 @@ class Parser {
         return id;
       case Tag.VANICMD:
         x = this.look;
-        //for (var id of x.replacement) { }
         this.move();
         return new VanillaCmd(x);
       case Tag.STRING:
@@ -1344,26 +1330,154 @@ function Generator(W) {
     }
   }
   function CP(M) {
-    var chain = [new CB("scb ply set state bkstage 0")];
-    M.forEach(function (BB, i) {
-      BB.gen(); BB.id = i
-    });
-    M.forEach(function (BB, i) {
-      chain.push(new CB("scb ply test state bkstage 1"));
-      BB.chain.forEach(function (inst) {
-        chain.push(inst);
-      });
-      var lastinst = BB[BB.length - 1];
-      switch (lastinst.type) {
-        case "goto":
-          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
-          break;
-        case "iffalse":
-          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
-          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
-          chain.push(new CB("scb ply set state bkstage " + (BB.id + 1)));
+    for (let i = 0; i < M.length; i++) {
+      var BB = M[i];
+      for (let j = 0; j < BB.length; j++) {
+        /* Calculate lastRead and lastWrite */
+        var Inst = BB[j], x1, x2;
+        switch (Inst.type) {
+          case "assign": case "assigncomp":
+            x1 = Inst.id;
+            if ((x1.tag & ~0x01) == ExprTag.ID) x1.lastWrite = Inst;
+          case "if": case "iffalse":
+            x2 = Inst.expr;
+            if ((x2.tag & ~0x01) == ExprTag.ID) x2.lastRead = Inst;
+            else if (x2.tag == ExprTag.UNARY && x2.expr.tag & ~0x01 == ExprTag.ID) x2.expr.lastRead = Inst;
+            else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
+              if ((x2.expr1.tag & ~0x01) == ExprTag.ID) x2.expr1.lastRead = Inst;
+              if ((x2.expr2.tag & ~0x01) == ExprTag.ID) x2.expr2.lastRead = Inst;
+            }
+        }
       }
-    });
+    }
+  }
+}
+
+var varDesc = [], scb = "bkstage";
+
+var RegisterAssign = function () {
+  var regDesc = [];
+  return {
+    getReg: function (v) {
+      if (v.reg) return;
+      for (let i = 0; i < regDesc.length; i++) {
+        if (regDesc[i].var == null) {
+          regDesc[i].var = v;
+          v.reg = regDesc[i];
+          return;
+        }
+      }
+      regDesc.push({
+        var: v,
+        number: regDesc.length,
+        toString: function () { return "R" + this.number }
+      });
+      v.reg = regDesc[regDesc.length - 1];
+    },
+    releaseReg: function (v) {
+      regDesc[v.reg.number].var = null;
+      v.reg = null;
+    }
+  }
+}();
+
+function CP(M) {
+  for (let i = 0; i < M.length; i++) {
+    var BB = M[i];
+    for (let j = 0; j < BB.length; j++) {
+      /* Calculate lastRead and lastWrite */
+      var Inst = BB[j], x1, x2;
+      switch (Inst.type) {
+        case "assign": case "assigncomp":
+          x1 = Inst.id;
+          if ((x1.tag & ~0x01) == ExprTag.ID) x1.lastWrite = Inst;
+        case "if": case "iffalse":
+          x2 = Inst.expr;
+          if ((x2.tag & ~0x01) == ExprTag.ID) x2.lastRead = Inst;
+          else if (x2.tag == ExprTag.UNARY && x2.expr.tag & ~0x01 == ExprTag.ID) x2.expr.lastRead = Inst;
+          else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
+            if ((x2.expr1.tag & ~0x01) == ExprTag.ID) x2.expr1.lastRead = Inst;
+            if ((x2.expr2.tag & ~0x01) == ExprTag.ID) x2.expr2.lastRead = Inst;
+          }
+      }
+    }
+  }
+
+  for (let i = 0; i < M.length; i++) {
+    var BB = M[i];
+    for (let j = 0; j < BB.length; j++) {
+      var Inst = BB[j], Chain = BB.chain, x1, x2;
+      switch (Inst.type) {
+        case "vanilla":
+          console.log(`VANI ${Inst.cmd}`);
+          break;
+        case "assign":
+          var x21, x22;
+          x1 = Inst.id, x2 = Inst.expr;
+          if ((x1.tag & ~0x01) == ExprTag.ID) {
+            if (!x1.reg) RegisterAssign.getReg(x1);
+            switch (x2.tag) {
+              case ExprTag.CONST:
+                console.log(`SET ${x1.reg} ${x2.op}`);
+                break;
+              case ExprTag.GS:
+                console.log(`OP ${x1.reg} = ${x2.toScbString()}`);
+                break;
+              case ExprTag.ID: case ExprTag.TEMP:
+                x1.reg != x2.reg && console.log(`OP ${x1.reg} = ${x2.reg}`);
+                if (x2.lastRead == Inst) RegisterAssign.releaseReg(x2);
+                break;
+              case ExprTag.SELECTOR:
+                console.log(`SET ${x1.reg} 0`);
+                console.log(`VANI \`execute ${x2} ~~~ scb ply add ${x1.reg} 1\``);
+                break;
+              case ExprTag.ARITH:
+                x21 = x2.expr1, x22 = x2.expr2;
+                if ((x21.tag & ~0x01) == ExprTag.ID)
+                  x1.reg != x21.reg && console.log(`OP ${x1.reg} = ${x21.reg}`);
+                else if (x21.tag == ExprTag.CONST)
+                  console.log(`SET ${x1.reg} ${x21.op}`);
+                else if (x21.tag == ExprTag.CONST)
+                  console.log(`OP ${x1.reg} = ${x2.toScbString()}`);
+                if ((x22.tag & ~0x01) == ExprTag.ID)
+                  console.log(`OP ${x1.reg} ${x2.op.tag}= ${x22.reg}`);
+                else if (x22.tag == ExprTag.CONST)
+                  console.log(`OP ${x1.reg} ${x2.op.tag}= ${x22.op}`);
+                if (x21.lastRead == Inst) RegisterAssign.releaseReg(x21);
+                if (x22.lastRead == Inst) RegisterAssign.releaseReg(x22);
+                break;
+              case "++":
+                console.log(`ADD ${x1.reg} 1`);
+                break;
+              case "--":
+                console.log(`ADD ${x1.reg} -1`);
+                break;
+            }
+          }
+          break;
+        case "assigncomp":
+          x1 = Inst.id, x2 = Inst.expr;
+          if (x1.tag == ExprTag.SELECTOR && x2.tag == ExprTag.CONST) {
+            if (Inst.op.tag == '+=')
+              console.log(`VANI \`tag ${x1} add ${x2}\``);
+            else if (Inst.op.tag == '-=')
+              console.log(`VANI \`tag ${x1} remove ${x2}\``);
+          } else if ((x1.tag & ~0x01) == ExprTag.ID && x2.tag == ExprTag.GS) {
+            if (!x1.reg) RegisterAssign.getReg(x1);
+            switch (Inst.op.tag) {
+              case '+': case '-':
+                console.log(`SET ${x1.reg} 0`);
+                console.log(`OP ${x1.reg} += ${x2.toScbString()}`);
+                break;
+              case '*': case '/': case '%':
+                console.log(`SET ${x1.reg} 1`);
+                console.log(`OP ${x1.reg} *= ${x2.toScbString()}`);
+                break;
+            }
+          }
+          break;
+      }
+    }
   }
 }
 
@@ -1378,6 +1492,4 @@ function run() {
   var parse = new Parser(str);
   parse.program();
   console.log(temp1 = Parser.modules);
-  //var k = new CommandGenerator(Parser.modules[0][0]);
-  //k.gen()
 }
