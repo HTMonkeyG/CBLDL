@@ -3,9 +3,9 @@
 <textarea id="input" rows="50" cols="50" style="resize: none;width: 400px;display: inline-block;">
 chain pulse {
   int i; int j;
-  i = "a" -> "e";
-  i = "a" -> @e;
-  j = "a" -> @e + @e;
+  i = "e" -> "a";
+  i = @e -> "a";
+  j = @e -> "a" + @e;
   i = i - j * i % 10;
   @e += "aaa";
   @a -= "bbb";

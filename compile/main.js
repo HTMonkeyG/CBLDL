@@ -635,9 +635,18 @@ class Id extends Expr {
    * @param {Type} p - Type of the identifier
    * @param {Number} b - UID of the identifier
    */
-  constructor(id, p, b) { super(id, p); this.offset = b; this.tag = ExprTag.ID; this.lastRead = null; this.lastWrite = null }
+  constructor(id, p, b) {
+    super(id, p);
+    this.offset = b;
+    this.tag = ExprTag.ID;
+    this.lastRead = null;
+    this.lastWrite = null;
+    this.value = null;
+  }
   /* offset represents UID */
   toScbString(scb) { return this.target.toString() + " " + scb }
+  genRightSide() { if (this.type == Type.Int) return this; else return this.value }
+  reduce() { if (this.type == Type.Int) return this; else return this.value }
 }
 
 /** Expression with an operator. @extends Expr */
@@ -684,19 +693,19 @@ class Arith extends Op {
 class GetScore extends Op {
   /**
    * @param {Token} tok - Token of the operator
-   * @param {Expr} x1 - Scoreboard object
-   * @param {Expr} x2 - Target
+   * @param {Expr} x1 - Target
+   * @param {Expr} x2 - Scoreboard object
    */
   constructor(tok, x1, x2) {
     super(tok, void 0);
-    this.scb = x1;
-    this.target = x2;
+    this.target = x1;
+    this.scb = x2;
     this.type = Type.Vector;
     this.tag = ExprTag.GS;
-    if (x1.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x1.type.lexeme);
-    if (x2.type != Type.String && x2.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x2.type.lexeme);
+    if (x1.type != Type.String && x1.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x1.type.lexeme);
+    if (x2.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x2.type.lexeme);
   }
-  genRightSide() { return new GetScore(this.op, this.scb.reduce(), this.target) }
+  genRightSide() { return new GetScore(this.op, this.target, this.scb.reduce()) }
   toString() { return this.scb.toString() + " " + this.op.toString() + " " + this.target.toString() }
   toScbString() { return this.target.toString() + " " + this.scb.toString() }
   /**
@@ -789,10 +798,17 @@ class AssignExpr extends Expr {
     else if (l == Type.Selector && r == Type.String) return Type.Selector;
     else return void 0
   }
-  gen() { this.emitassign(this.id.toAddr(), this.expr.genRightSide().toAddr()) }
-  genRightSide() { this.gen(); return this.id }
+  gen() { this.genRightSide() }
+  genRightSide() {
+    if (this.id.type == Type.Int) {
+      this.emitassign(this.id.toAddr(), this.expr.genRightSide().toAddr());
+      return this.id
+    } else {
+      return this.id.value = this.expr.genRightSide();
+    }
+  }
   toString() { return this.id.toString() + " = " + this.expr.toString() }
-  reduce() { this.gen(); return this.id }
+  reduce() { return this.genRightSide() }
 }
 
 /** Compound assignment implement. @extends AssignExpr */
@@ -803,14 +819,13 @@ class CompoundAssignExpr extends AssignExpr {
    * @param {Token} op - Operator
    */
   constructor(i, x, op) { super(i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
-  gen() {
+  genRightSide() {
     if (this.id.type == Type.Selector && this.expr.type == Type.String) {
-      this.emitassigncomp(this.id.toAddr(), this.op, this.expr.genRightSide().toAddr())
+      this.emitassigncomp(this.id.toAddr(), this.op, this.expr.genRightSide().toAddr());
+      return this.expr.genRightSide()
     } else {
-      /*var t = new Temp(this.type);
-      this.emitassign(t, this.expr.genRightSide().toAddr());
-      this.emitassign(this.id, new Arith(new Token(this.op.tag.replace("=", "")), this.id, t))*/
       this.emitassign(this.id, this.expr.reduce().toAddr())
+      return this.id
     }
   }
 }
@@ -827,7 +842,7 @@ class Prefix extends CompoundAssignExpr {
       this.error("Invalid left-hand side expression in prefix operation");
     this.tag = ExprTag.PREF
   }
-  gen() { this.emitassign(this.id.toAddr(), this.op) }
+  genRightSide() { this.emitassign(this.id.toAddr(), this.op); return this.id }
 }
 
 /** 
@@ -847,8 +862,7 @@ class Postfix extends CompoundAssignExpr {
       this.error("Invalid left-hand side expression in postfix operation");
     this.tag = ExprTag.POSTF
   }
-  gen() { this.emitassign(this.id.toAddr(), this.op) }
-  genRightSide() { this.gen(); return this.id }
+  genRightSide() { this.emitassign(this.id.toAddr(), this.op); return this.id }
 }
 
 /** Selector implement. @extends Expr */
