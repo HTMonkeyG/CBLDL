@@ -1235,7 +1235,7 @@ class Parser {
   }
 
   assign() {
-    var x = this.bool(), tok = this.look;
+    var x = this.logicalOr(), tok = this.look;
     switch (tok.tag) {
       case "=":
         if (x.op.tag == Tag.ID || x.op.tag == Tag.GS) {
@@ -1255,12 +1255,12 @@ class Parser {
     }
   }
 
-  bool() { var x = this.join(); while (this.look.tag == Tag.OR) { var tok = this.look; this.move(); x = new Or(tok, x, this.join()) } return x }
-  join() { var x = this.equality(); while (this.look.tag == Tag.AND) { var tok = this.look; this.move(); x = new And(tok, x, this.equality()) } return x }
-  equality() { var x = this.rel(); while (this.look.tag == Tag.EQ || this.look.tag == Tag.NE) { var tok = this.look; this.move(); x = new Rel(tok, x, this.rel()) } return x }
-  rel() { var x = this.expr(); switch (this.look.tag) { case '<': case Tag.LE: case Tag.GE: case '>': var tok = this.look; this.move(); return new Rel(tok, x, this.expr()); default: return x } }
-  expr() { var x = this.term(); while (this.look.tag == "+" || this.look.tag == "-") { var tok = this.look; this.move(); x = new Arith(tok, x, this.term()) } return x }
-  term() { var x = this.unary(); while (this.look.tag == "*" || this.look.tag == "/" || this.look.tag == "%") { var tok = this.look; this.move(); x = new Arith(tok, x, this.unary()) } return x }
+  logicalOr() { var x = this.logicalAnd(); while (this.look.tag == Tag.OR) { var tok = this.look; this.move(); x = new Or(tok, x, this.logicalAnd()) } return x }
+  logicalAnd() { var x = this.equality(); while (this.look.tag == Tag.AND) { var tok = this.look; this.move(); x = new And(tok, x, this.equality()) } return x }
+  equality() { var x = this.relational(); while (this.look.tag == Tag.EQ || this.look.tag == Tag.NE) { var tok = this.look; this.move(); x = new Rel(tok, x, this.relational()) } return x }
+  relational() { var x = this.additive(); switch (this.look.tag) { case '<': case Tag.LE: case Tag.GE: case '>': var tok = this.look; this.move(); return new Rel(tok, x, this.additive()); default: return x } }
+  additive() { var x = this.multiplicative(); while (this.look.tag == "+" || this.look.tag == "-") { var tok = this.look; this.move(); x = new Arith(tok, x, this.multiplicative()) } return x }
+  multiplicative() { var x = this.unary(); while (this.look.tag == "*" || this.look.tag == "/" || this.look.tag == "%") { var tok = this.look; this.move(); x = new Arith(tok, x, this.unary()) } return x }
 
   unary() {
     var tok = this.look;
@@ -1277,7 +1277,7 @@ class Parser {
   }
 
   postfix() {
-    var x = this.score(), tok;
+    var x = this.getScore(), tok;
     if (this.look.tag == "++" || this.look.tag == "--") {
       tok = this.look; this.move();
       if (x.op.tag == Tag.ID || x.op.tag == Tag.GS) return new Postfix(x, tok);
@@ -1285,15 +1285,15 @@ class Parser {
     } else return x;
   }
 
-  score() {
-    var x = this.factor();
+  getScore() {
+    var x = this.primary();
     if (this.look.tag == Tag.GS) {
       this.move();
-      return new GetScore(Word.gs, x, this.factor())
+      return new GetScore(Word.gs, x, this.primary())
     } else return x
   }
 
-  factor() {
+  primary() {
     var x = void 0;
     switch (this.look.tag) {
       case '(':
