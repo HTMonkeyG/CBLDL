@@ -76,6 +76,12 @@ Terminal
 
 ## 4.3 选择器（Selector）
 &emsp;&emsp;选择器提供了在CBLDL层面访问实体的方式，其语法与游戏内保持一致。
+### 4.3.1 GetCount(S)方法
+&emsp;&emsp;1. 返回S选中的实体数量。等价于指令  
+```
+scoreboard players set ${return} 0
+execute at ${S} run scoreboard players add ${return} 1
+```
 
 ## 4.4 计分板向量（Vector）
 &emsp;&emsp;计分板向量由一个指代记分项的字符串和一个指代目标的选择器或字符串组成。这是在CBLDL中对计分板的访问方法。  
@@ -87,15 +93,34 @@ Terminal
 &emsp;&emsp;在本标准中使用以下抽象方法来描述计分项操作：
 
 ### 4.4.1 GetScore(T, S)方法
-&emsp;&emsp;1. 返回一个指代计分项为S，目标为T的计分项向量的引用。  
+&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
+&emsp;&emsp;2. 如果typeof(T)为String，返回虚拟实体T在计分项S上的分数。  
+&emsp;&emsp;3. 如果typeof(T)为Selector，  
+&emsp;&emsp;4. 报**TypeError**。
+
+### 4.4.2 PutScore(T, S, V)方法
+&emsp;&emsp;1. 如果typeof(S)不为String，则报**TypeError**。  
+&emsp;&emsp;2. 如果typeof(V)不为Int，则报**TypeError**。  
+&emsp;&emsp;3. 如果typeof(T)不为String或Selector，则报**TypeError**。  
+&emsp;&emsp;4. 将所有T中包含的(虚拟)实体在S中的分数设为GetValue(V)。等价于指令  
+```
+scoreboard players set ${T} ${S} ${GetValue(V)}
+```
 
 ## 4.5 引用类型
-&emsp;&emsp;**引用类型不是一个实际的数据类型。** 该类型仅在本标准中作为辅助说明的方式定义。CBLDL实现须以标准中描述的方式操作引用。但同时，引用类型的值仅可用于表达式求值过程的中转，不可存储为变量的值。
-&emsp;&emsp;引用类型用于描述计分项向量的取分、赋值运算等运算类型，比如一个赋值运算的左值应生成一个引用。
+&emsp;&emsp;**引用类型不是一个实际的数据类型。** 该类型仅在本标准中作为辅助说明的方式定义。CBLDL实现须以标准中描述的方式操作引用。但同时，引用类型的值仅可用于表达式求值过程的中转，不可存储为变量的值。  
+&emsp;&emsp;引用类型是一种特殊的记分项向量，其对应的计分板指向全局默认计分板(DefaultScb)，用于描述变量的取值、赋值运算等运算类型，比如一个赋值运算的左值应生成一个引用。  
+&emsp;&emsp;引用包含一个用于描述该变量存储位置(复用的虚拟实体的名字，也叫寄存器)的分量R。  
+&emsp;&emsp;本标准中使用以下抽象方法来访问引用的组成成分：
++ GetRegStr(V)，返回V对应的R。  
 &emsp;&emsp;在本标准中使用以下抽象方法来操作引用：
 
 ### 4.5.1 GetValue(V)方法
-&emsp;&emsp;1. 如果V不是一个引用，则直接返回V。
+&emsp;&emsp;1. 如果V不是一个引用，则直接返回V。  
+&emsp;&emsp;2. 调用GetRegStr(V)。  
+&emsp;&emsp;3. 如果Result(2)不为空字符串，则调用GetScore(Result(2), DefaultScb)。  
+&emsp;&emsp;4. 返回Result(3)。  
+&emsp;&emsp;5. 报**ReferenceError**。
 
 # 5 类型转换
 &emsp;&emsp;CBLDL是强类型语言，同时其允许自动的强制类型转换。下方为编程语言内置的类型转换函数。这些函数无法在语言层面调用，也不是保留字，其效果由编译器实现。
