@@ -117,8 +117,9 @@ scoreboard players set ${T} ${S} ${GetValue(V)}
 
 ### 4.5.1 GetValue(V)方法
 &emsp;&emsp;1. 如果V不是一个引用，则直接返回V。  
-&emsp;&emsp;2. 调用GetRegStr(V)。  
-&emsp;&emsp;3. 如果Result(2)不为空字符串，则调用GetScore(Result(2), DefaultScb)。  
+&emsp;&emsp;2. 调用GetRegStr(V)。
+&emsp;&emsp;3. 如果Result(2)为空字符串，跳转到5。  
+&emsp;&emsp;3. 调用GetScore(Result(2), DefaultScb)。  
 &emsp;&emsp;4. 返回Result(3)。  
 &emsp;&emsp;5. 报**ReferenceError**。
 
@@ -180,8 +181,8 @@ scoreboard players set ${T} ${S} ${GetValue(V)}
 &emsp;&emsp;产生式```<GetScoreExpression>: <PrimaryExpression> -> <PrimaryExpression>```求值过程如下：  
 &emsp;&emsp;1. 求值取分算符左侧的```<PrimaryExpression>```。  
 &emsp;&emsp;2. 求值取分算符右侧的```<PrimaryExpression>```。  
-&emsp;&emsp;3. 调用GetScore(Result(1), Result(2))。
-&emsp;&emsp;4. 返回Result(3)。
+&emsp;&emsp;3. 如果Result(2)不为字符串或选择器，Result(1)不为字符串，报**TypeError**。
+&emsp;&emsp;4. 返回一个目标为Result(1)、记分项为Result(2)的Vector。
 
 ## 6.3 后缀算符
 ```
