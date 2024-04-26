@@ -51,7 +51,7 @@ Terminal
 ```
 
 ## 3.2 one-of 标记
-&emsp;&emsp;one-of 标记表明其后的任一终结符均为可选项。例如
+&emsp;&emsp;one-of 标记表明其后的所有语法符号均为可选项。例如
 ```
 <AssignmentOperator> : one-of
   = += -= *= /= %= 
@@ -68,14 +68,15 @@ Terminal
 ```
 # 4 CBLDL类型
 ## 4.1 整型（Int）
-&emsp;&emsp;整型有4294967296个可能取值（-2^31 ~ 2^31-1），即32位有符号整数。
+&emsp;&emsp;整型有4294967296个可能取值（-2^31 ~ 2^31-1），即32位有符号整数。运算规则与MC游戏内保持一致。 
 
 ## 4.2 字符串（String）
 &emsp;&emsp;一个字符串为一有限的由一系列16位有符号整数构成的数组。一般情况下，该数组中每一元素均表述一UTF-16字符。  
-&emsp;&emsp;该数组内元素无法以任何方式从CBLDL层面访问，其仅可作为整体。
+&emsp;&emsp;该数组内元素无法以任何方式从CBLDL层面访问，其仅以一个整体参与程序行为。
 
 ## 4.3 选择器（Selector）
 &emsp;&emsp;选择器提供了在CBLDL层面访问实体的方式，其语法与游戏内保持一致。
+
 ### 4.3.1 GetCount(S)方法
 &emsp;&emsp;1. 返回S选中的实体数量。等价于指令  
 ```
@@ -85,70 +86,96 @@ execute at ${S} run scoreboard players add ${return} 1
 
 ## 4.4 计分板向量（Vector）
 &emsp;&emsp;计分板向量由一个指代记分项的字符串和一个指代目标的选择器或字符串组成。这是在CBLDL中对计分板的访问方法。  
-&emsp;&emsp;若一个计分项向量作为赋值表达式的左侧参与运算，则其包含的所有实体在对应计分项的分数均会被赋值为表达式的右侧值；若一个计分项向量作为一个运算分量参与运算，则按以下规则处理：  
-&emsp;&emsp;1. 如果目标为字符串，则直接返回目标在对应计分项的分数。  
-&emsp;&emsp;2. 如果目标为选择器，则依据参与运算的类型进行处理：  
-&emsp;&emsp;&emsp;a. 如果运算为加或减，则返回所有涉及到的实体的分数之和。  
-&emsp;&emsp;&emsp;b. 如果运算为乘、除或取余，则返回所有涉及到的实体的分数之积。  
+&emsp;&emsp;若一个计分项向量作为赋值表达式的左侧参与运算，则其包含的所有实体在对应计分项的分数均会被赋值为表达式的右侧值。一个涉及到多个实体的计分项向量作为多元运算符的分量参与运算是一个**不确定操作**，编译器无需确定该操作结果。  
 &emsp;&emsp;在本标准中使用以下抽象方法来描述计分项操作：
 
 ### 4.4.1 GetScore(T, S)方法
 &emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
 &emsp;&emsp;2. 如果typeof(T)为String，返回虚拟实体T在计分项S上的分数。  
-&emsp;&emsp;3. 如果typeof(T)为Selector，  
-&emsp;&emsp;4. 报**TypeError**。
+&emsp;&emsp;3. 报**TypeError**。
 
 ### 4.4.2 PutScore(T, S, V)方法
 &emsp;&emsp;1. 如果typeof(S)不为String，则报**TypeError**。  
 &emsp;&emsp;2. 如果typeof(V)不为Int，则报**TypeError**。  
 &emsp;&emsp;3. 如果typeof(T)不为String或Selector，则报**TypeError**。  
-&emsp;&emsp;4. 将所有T中包含的(虚拟)实体在S中的分数设为GetValue(V)。等价于指令  
+&emsp;&emsp;4. 将所有T中包含的(虚拟)实体在S中的分数设为GetValue(V)。等价于指令：  
 ```
 scoreboard players set ${T} ${S} ${GetValue(V)}
 ```
 
+### 4.4.2 ReduceScoreSum(T, S)方法
+&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
+&emsp;&emsp;2. 如果typeof(T)为Selector，返回T中所有实体在计分项S上的分数之和。等价于指令：  
+```
+scoreboard players set ${return} 0
+scoreboard players operation ${return} += ${T} ${S}
+```
+&emsp;&emsp;3. 报**TypeError**。
+
+### 4.4.2 ReduceScoreMul(T, S)方法
+&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
+&emsp;&emsp;2. 如果typeof(T)为Selector，返回T中所有实体在计分项S上的分数之积。等价于指令：  
+```
+scoreboard players set ${return} 0
+scoreboard players operation ${return} *= ${T} ${S}
+```
+&emsp;&emsp;3. 报**TypeError**。
+
 ## 4.5 引用类型
-&emsp;&emsp;**引用类型不是一个实际的数据类型。** 该类型仅在本标准中作为辅助说明的方式定义。CBLDL实现须以标准中描述的方式操作引用。但同时，引用类型的值仅可用于表达式求值过程的中转，不可存储为变量的值。  
-&emsp;&emsp;引用类型是一种特殊的记分项向量，其对应的计分板指向全局默认计分板(DefaultScb)，用于描述变量的取值、赋值运算等运算类型，比如一个赋值运算的左值应生成一个引用。  
+&emsp;&emsp;**引用类型不是一个实际的数据类型。** 该类型仅在本标准中作为辅助说明的方式定义。CBLDL实现须以标准中描述的方式操作引用。但同时，引用类型仅可用于表达式求值过程的中转，不可存储为变量的值。  
+&emsp;&emsp;引用类型是一种特殊的记分项向量，其对应的计分板指向全局默认计分板($DefaultScb)，用于描述变量的取值、赋值运算等运算类型，比如一个赋值运算的左值应生成一个引用。  
 &emsp;&emsp;引用包含一个用于描述该变量存储位置(复用的虚拟实体的名字，也叫寄存器)的分量R。  
 &emsp;&emsp;本标准中使用以下抽象方法来访问引用的组成成分：
-+ GetRegStr(V)，返回V对应的R。  
++ GetRegStr(V)，返回V对应的R。
+
 &emsp;&emsp;在本标准中使用以下抽象方法来操作引用：
 
 ### 4.5.1 GetValue(V)方法
 &emsp;&emsp;1. 如果V不是一个引用，则直接返回V。  
-&emsp;&emsp;2. 调用GetRegStr(V)。
-&emsp;&emsp;3. 如果Result(2)为空字符串，跳转到5。  
-&emsp;&emsp;3. 调用GetScore(Result(2), DefaultScb)。  
-&emsp;&emsp;4. 返回Result(3)。  
-&emsp;&emsp;5. 报**ReferenceError**。
+&emsp;&emsp;2. 调用GetRegStr(V)。  
+&emsp;&emsp;3. 如果Result(2)为空字符串，报**ReferenceError**。  
+&emsp;&emsp;4. 调用GetScore(Result(2), $DefaultScb)。  
+&emsp;&emsp;5. 返回Result(3)。  
+
+### 4.5.1 PutValue(V, W)方法
+&emsp;&emsp;1. 如果V不是一个引用，报**ReferenceError**。  
+&emsp;&emsp;2. 调用GetRegStr(V)。  
+&emsp;&emsp;3. 如果Result(2)为空字符串，报**ReferenceError**。  
+&emsp;&emsp;4. 调用PutScore(Result(2), $DefaultScb, W)。  
+&emsp;&emsp;5. 返回。  
 
 # 5 类型转换
-&emsp;&emsp;CBLDL是强类型语言，同时其允许自动的强制类型转换。下方为编程语言内置的类型转换函数。这些函数无法在语言层面调用，也不是保留字，其效果由编译器实现。
+&emsp;&emsp;CBLDL是强类型语言，同时其允许强制类型转换。下方为编程语言内置的类型转换函数。这些函数无法在语言层面调用，也不是保留字，其效果由编译器实现。
 
 ## 5.1 ToInt
 &emsp;&emsp;该方法将其输入根据以下规则转换为Int：
-+ 1. 输入类型为Bool时，若其值为true，则转换为1；为false时，转换为0。
-+ 2. 输入类型为Int时不作更改。
-+ 3. 输入类型为Vector时，根据4.4节的方式处理。
-+ 4. 输入类型为Selector时，转换为其能选择到的实体数。
+|输入类型|操作|
+|-|-|
+|Bool|若其值为true，则转换为1；为false时，转换为0|
+|Int|不作更改|
+|Vector|根据4.4节的方式处理|
+|Selector|返回GetCount(输入)|
 
 &emsp;&emsp;其余类型不允许转换。
 
 ## 5.2 ToBoolean
 &emsp;&emsp;该方法将其输入根据以下规则转换为Bool：
-+ 1. 输入类型为Bool时不作更改。
-+ 2. 输入类型为Int时，若输入等于0，则转换为true，否则转换为false。
-+ 3. 输入类型为Vector时，根据5.1节的方式处理为整型后，按照整型处理。
-+ 4. 输入类型为Selector时，若选择器能选择到目标则转换为true，否则转换为false。
+|输入类型|操作|
+|-|-|
+|Bool|不作更改|
+|Int|若输入等于0，则转换为true，否则转换为false|
+|Vector|根据5.1节的方式处理为整型后，按照整型处理|
+|Selector|若选择器能选择到目标则转换为true，否则转换为false|
 
 &emsp;&emsp;其余类型不允许转换。
 
 ## 5.3 ToString
 &emsp;&emsp;该方法将其输入根据以下规则转换为String：
-+ 1. 输入类型为Vector时，转换为```<target-string> <scoreboard-string>```的形式；其中```<target-string>```为Vector的目标执行ToString的结果，```<scoreboard-string>```为Vector的计分项执行ToString的结果。
-+ 2. 输入类型为Selector时，转换为选择器原文。
-+ 3. 输入类型为String时不作更改。
+|输入类型|操作|
+|-|-|
+|Vector|转换为```<target-string> <scoreboard-string>```的形式；其中```<target-string>```为Vector的目标执行ToString的结果，```<scoreboard-string>```为Vector的计分项执行ToString的结果|
+|Selector|转换为选择器原始字符串|
+|String|不作更改|
 
 &emsp;&emsp;其余类型不允许转换。
 
@@ -181,7 +208,7 @@ scoreboard players set ${T} ${S} ${GetValue(V)}
 &emsp;&emsp;产生式```<GetScoreExpression>: <PrimaryExpression> -> <PrimaryExpression>```求值过程如下：  
 &emsp;&emsp;1. 求值取分算符左侧的```<PrimaryExpression>```。  
 &emsp;&emsp;2. 求值取分算符右侧的```<PrimaryExpression>```。  
-&emsp;&emsp;3. 如果Result(2)不为字符串或选择器，Result(1)不为字符串，报**TypeError**。
+&emsp;&emsp;3. 如果Result(2)不为字符串或选择器，Result(1)不为字符串，报**TypeError**。  
 &emsp;&emsp;4. 返回一个目标为Result(1)、记分项为Result(2)的Vector。
 
 ## 6.3 后缀算符
@@ -253,4 +280,137 @@ scoreboard players set ${T} ${S} ${GetValue(V)}
 
 <Expression> :
   <AssignmentExpression>
+```
+
+# 7 语句
+```
+<Statement> :
+  <Block>
+  <VariableStatement>
+  <EmptyStatement>
+  <ExpressionStatement>
+  <IfStatement>
+  <IterationStatement>
+  <BreakStatement>
+  <DelayHardStatement>
+  <ExecuteStatement>
+
+<StatementNoDelayHard> :
+  <BlockNoDelayHard>
+  <VariableStatement>
+  <EmptyStatement>
+  <ExpressionStatement>
+  <IfStatement>
+  <IterationStatement>
+  <BreakStatement>
+  <ExecuteStatement>
+```
+&emsp;&emsp;语句是CBLDL程序的最基础运行成分。
+
+## 7.1 块（Block）
+```
+<Block> :
+  { [<StatementList>] }
+
+<StatementList> :
+  <Statement>
+  <StatementList> <Statement>
+
+<BlockNoDelayHard> :
+  { [<StatementListNoDelayHard>] }
+
+<StatementListNoDelayHard> :
+  <StatementNoDelayHard>
+  <StatementListNoDelayHard> <StatementNoDelayHard>
+```
+
+## 7.2 变量定义语句（VariableStatement）
+```
+<VariableStatement> :
+  var <VariableDeclarationList> ;
+
+<VariableDeclarationList> :
+  <VariableDeclaration>
+
+<VariableDeclaration> :
+  <Identifier> [<Initialiser>]
+
+<Initialiser> :
+  = <AssignmentExpression>
+```
+
+## 7.3 空语句（EmptyStatement）
+```
+<EmptyStatement> :
+  ;
+```
+
+## 7.4 表达式语句（ExpressionStatement）
+```
+<ExpressionStatement> :
+  <Expression> ;
+```
+
+## 7.5 If语句（IfStatement）
+```
+<IfStatement> :
+  if ( <Expression> ) <Statement> else <Statement>
+  if ( <Expression> ) <Statement>
+```
+
+## 7.6 循环语句（IterationStatement）
+```
+<IterationStatement> :
+  do <Statement> while ( <Expression> ) ;
+  while ( <Expression> ) <Statement>
+```
+
+## 7.7 Break语句（BreakStatement）
+```
+<BreakStatement> :
+  break ;
+```
+
+## 7.8 硬延迟语句（DelayHardStatement）
+```
+<DelayHardStatement> :
+  delayh <NumericLiteral> ;
+```
+
+## 7.9 Execute实体层语句（ExecuteStatement）
+```
+<VanillaExecute> :
+  at <PrimaryExpression>
+  as <PrimaryExpression>
+  positioned <PrimaryExpression>
+  if block <PrimaryExpression>
+
+<VanillaExecuteList> :
+  <VanillaExecute> <VanillaExecuteList>
+
+<ExecuteStatement> :
+  <PrimaryExpression> => <Statement>
+  execute <VanillaExecuteList> run <Statement>
+```
+
+# 8 模块
+```
+<ChainPulseModule> :
+  chain pulse <Block>
+  chain <Block>
+
+<ChainRepeatingModule> :
+  chain repeating <Block>
+
+<CombinedModule> :
+  module <BlockNoDelayHard>
+
+<Module> :
+  <ChainPulseModule>
+  <ChainRepeatingModule>
+  <CombinedModule>
+
+<ModuleList> :
+  <Module> <ModuleList>
+  <Module>
 ```
