@@ -127,6 +127,7 @@ scoreboard players operation ${return} *= ${T} ${S}
 &emsp;&emsp;引用包含一个用于描述该变量存储位置(复用的虚拟实体的名字，也叫寄存器)的分量R。  
 &emsp;&emsp;本标准中使用以下抽象方法来访问引用的组成成分：
 + GetRegStr(V)，返回V对应的R。
++ toScbString()，返回```<target-string> <scoreboard-string>```的形式；其中```<target-string>```为R，```<scoreboard-string>```为$DefaultScb。
 
 &emsp;&emsp;在本标准中使用以下抽象方法来操作引用：
 
