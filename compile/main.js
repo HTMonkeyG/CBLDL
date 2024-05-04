@@ -42,6 +42,9 @@ const Tag = {
   AE: 284,
   EXECUTE: 285,
   DELAYH: 286,
+  VANICMDHEAD: 287,
+  VANICMDBODY: 288,
+  VANICMDTAIL: 289,
   LF: 0xFFFE,
   EOF: 0xFFFF
 };
@@ -53,8 +56,7 @@ const ExprTag = {
   SELECTOR: 0x8003,
   CONST: 0x8004,
   UNARY: 0x8005,
-  ID: 0x8006,
-  TEMP: 0x8007,
+  REF: 0x8006,
   VANICMD: 0x8008,
   ASSIGN: 0x8009,
   ASSICOMP: 0x800A,
@@ -71,7 +73,7 @@ const Mode = { CP: 0, CR: 1, M: 2, DECL: 3 };
 class Token { constructor(t) { this.tag = t; this.uid = Token.uid++ } toString() { return this.tag } static uid = 0; static EOF = new Token(Tag.EOF) }
 class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
 class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
-class VaniCmdLiteral extends Token { constructor(v) { super(Tag.VANICMD); this.cmd = v } toString() { return "`" + this.cmd + "`" } }
+class VaniCmdLiteral extends Token { constructor(v, t) { super(t ? t : Tag.VANICMD); this.cmd = v } toString() { return this.cmd } }
 class SelectorLiteral extends Token { constructor(v) { super(Tag.SELECTOR); this.value = v } toString() { return this.value } }
 class HashTable { constructor() { this.KV = {} } put(k, v) { this.KV[k] = v; } get(k) { return this.KV[k] } }
 
@@ -117,6 +119,7 @@ class Type extends Word {
     else if (p1 == Type.Selector && p2 == Type.Vector) return Type.Int;
     else if (p2 == Type.Selector && p1 == Type.Vector) return Type.Int;
     else if (p1 == Type.Int && p2 == Type.Selector) return Type.Int;
+    else if (p2 == Type.Int && p1 == Type.Selector) return Type.Int;
     else return void 0;
   }
 
@@ -151,7 +154,7 @@ var Lexer = function () {
     }
 
     if (!canRead()) return Token.EOF;
-    var t = ptr;
+
     switch (peek) {
       case '&':
         if (readch('&')) return Word.and;
@@ -200,7 +203,20 @@ var Lexer = function () {
       return w
     }
     if (/\d/.test(peek)) return readNumber();
-    if (peek == "`") return new VaniCmdLiteral(readStringUntil("`"));
+    if (peek == "`" && !readingVaniCmd) {
+      var t = readVaniCmd();
+      if (!readingVaniCmd)
+        return new VaniCmdLiteral(t);
+      else
+        return new VaniCmdLiteral(t, Tag.VANICMDHEAD);
+    }
+    if (peek == "}" && readingVaniCmd) {
+      var t = readVaniCmd();
+      if (!readingVaniCmd)
+        return new VaniCmdLiteral(t, Tag.VANICMDTAIL);
+      else
+        return new VaniCmdLiteral(t, Tag.VANICMDBODY);
+    }
     if (peek == '"') return new StringLiteral(readStringUntil('"'));
     if (peek == '@') return readSelector();
     if (!canRead()) return Token.EOF;
@@ -232,9 +248,7 @@ var Lexer = function () {
     while (canRead()) {
       readch();
       if (escaped) {
-        if (peek == terminator || peek == "\\") {
-          result += peek;
-        } else if (peek == "n") {
+        if (peek == "n") {
           result += "\n";
         } else {
           result += peek;
@@ -284,11 +298,42 @@ var Lexer = function () {
     }
   }
 
+  function readVaniCmd() {
+    var result = ""
+      , escaped = !1;
+    readingVaniCmd = !0;
+    while (canRead()) {
+      readch();
+      if (escaped) {
+        if (peek == "n")
+          result += "\n";
+        else
+          result += peek;
+        escaped = !1;
+      } else if (peek == "\\")
+        escaped = !0;
+      else if (peek == "$") {
+        readch();
+        if (peek == "{") {
+          readch();
+          return result;
+        }
+        result += "$" + peek;
+      } else if (peek == "`") {
+        readch();
+        readingVaniCmd = !1;
+        return result;
+      } else
+        result += peek;
+    }
+  }
+
   var words = new HashTable()
     , str = ""
     , ptr = 0
     , peek = " "
-    , line = 1;
+    , line = 1
+    , readingVaniCmd = !1;
   function init(s) {
     words = new HashTable(),
       str = s,
@@ -342,16 +387,13 @@ class Env {
 
 class CB {
   constructor(cmd) { this.cmd = cmd; this.rsctl = !0; this.condition = !0; this.type = 0 }
-  /* bit0: condition */
-  /* bit1: redstone */
-  /* bit2-3: type */
   setCondition(t) { this.condition = t }
   setRedstone(t) { this.redstone = t }
   setType(t) { this.type = t }
   static commandblocks = [];
   static scb = "bkstage";
   static emit(c) { CB.commandblocks.push(c) }
-  static emitCmd(c) { CB.commandblocks.push(new CB(c)) }
+  static emitCmd(c) { return new CB(c) }
   static emitScb(e1, o1, op, e2, o2) {
     var t = "";
     // scb ply op <dest> <obj1> <op> <victim> <obj2>
@@ -360,6 +402,9 @@ class CB {
     else if (e2) t = `scb ply ${op} ${e1} ${o1} ${e2}`;
     CB.commandblocks.push(new CB(t))
   }
+}
+class CBSubChain extends Array {
+  constructor() { }
 }
 class TACBaseBlock extends Array {
   constructor(id) { super(); this.chain = []; this.id = id }
@@ -375,11 +420,72 @@ class TACInst { constructor(t) { this.type = t; this.lastWrite = []; this.lastRe
 class TACLabel extends TACInst { constructor(n) { super("label"); this.label = n; this.onUse = []; this.baseblock = null } mark(i) { this.onUse.push(i) } }
 class TACDelayH extends TACInst { constructor(t) { super("delayh"); this.delay = t } }
 class TACGoto extends TACInst { constructor(l, c, t) { super(void 0); if (c == 1) this.type = "if", this.expr = t, this.label = l; else if (c == 2) this.type = "iffalse", this.expr = t, this.label = l; else this.type = "goto", this.label = l; } }
-class TACVanilla extends TACInst { constructor(c) { super("vanilla"); this.cmd = c } gen() { CB.emitCmd(this.cmd) } }
+class TACVanilla extends TACInst {
+  constructor(c) { super("vanilla"); this.cmd = c }
+  gen(c) { c.push(CB.emitCmd(this.cmd)) }
+}
 class TACAssign extends TACInst {
   constructor(i, e, o) { super(void 0); if (o) this.type = "assigncomp", this.id = i, this.expr = e, this.op = o; else this.type = "assign", this.id = i, this.expr = e; }
-  getIdTag() { return this.id.op.tag }
-  getExprTag() { if (this.expr.tag == ExprTag.CONST) return this.expr.op.tag; else return this.expr.tag }
+  gen(c) {
+    function assignReg(v) { if (!v.reg && v.tag == ExprTag.REF) RegisterAssign.getReg(v); }
+    var x1 = this.id, x2 = this.expr;
+    if (this.type == "assign") {
+      var x21, x22;
+      switch (x2.tag) {
+        case ExprTag.CONST: case ExprTag.GS:
+          assignReg(x1);
+          console.log(`SET ${x1} ${x2}`);
+          break;
+        case ExprTag.REF:
+          if (x2.lastRead == Inst) RegisterAssign.releaseReg(x2);
+          assignReg(x1);
+          x1.reg != x2.reg && console.log(`OP ${x1} = ${x2}`);
+          break;
+        case ExprTag.SELECTOR:
+          assignReg(x1);
+          console.log(`SET ${x1} 0`);
+          console.log(`VANI \`execute ${x2} ~~~ scb ply add ${x1} 1\``);
+          break;
+        case ExprTag.ARITH:
+          assignReg(x1);
+          x21 = x2.expr1, x22 = x2.expr2;
+          if (x21.tag == ExprTag.REF)
+            x1.reg != x21.reg && console.log(`OP ${x1} = ${x21}`);
+          else if (x21.tag == ExprTag.CONST)
+            console.log(`SET ${x1} ${x21.op}`);
+          else if (x21.tag == ExprTag.GS)
+            console.log(`OP ${x1} = ${x2}`);
+          if ((x22.tag & ~0x01) == ExprTag.REF)
+            console.log(`OP ${x1} ${x2.op.tag}= ${x22}`);
+          else if (x22.tag == ExprTag.CONST)
+            console.log(`OP ${x1} ${x2.op.tag}= ${x22.op}`);
+          if (x21.lastRead == this) RegisterAssign.releaseReg(x21);
+          if (x22.lastRead == this) RegisterAssign.releaseReg(x22);
+          break;
+        case "++":
+          assignReg(x1);
+          console.log(`ADD ${x1} 1`);
+          break;
+        case "--":
+          assignReg(x1);
+          console.log(`ADD ${x1} -1`);
+          break;
+      }
+    }
+    else if (this.type == "assigncomp") {
+      if (x1.tag == ExprTag.SELECTOR && x2.tag == ExprTag.CONST) {
+        if (this.op.tag == '+=')
+          console.log(`VANI \`tag ${x1} add ${x2}\``);
+        else if (this.op.tag == '-=')
+          console.log(`VANI \`tag ${x1} remove ${x2}\``);
+      } else if (x1.tag == ExprTag.REF || x1.tag == ExprTag.GS) {
+        assignReg(x1);
+        console.log(`OP ${x1} ${this.op} ${x2}`);
+        if (x2.lastRead == this) RegisterAssign.releaseReg(x2);
+        if (x2.lastRead == this) RegisterAssign.releaseReg(x2);
+      }
+    }
+  }
 }
 
 /** Abstract Syntax Tree Node */
@@ -431,7 +537,7 @@ class ASTNode {
   emitassigncomp(i, o, e) { Parser.appendObj(new TACAssign(i, e, o)) }
   /** 
    * Gen a vanilla command.
-   * @param {VanillaCmd} c - Command
+   * @param {VanillaCmdNoTag} c - Command
    */
   emitvanilla(c) { Parser.appendObj(new TACVanilla(c)) }
   /** 
@@ -607,7 +713,7 @@ class Expr extends Stmt {
    * @param {TACLabel} t - Label of true
    * @param {TACLabel} f - Lable of false
    */
-  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
+  jumping(t, f) { this.emitjumps(this, t, f) }
   /**
    * Gen as a conditioned goto.
    * @param {Expr} test - Condition
@@ -624,8 +730,6 @@ class Expr extends Stmt {
     else; // t & f directly cross, no instruction generating.
   }
   toString() { return this.op.toString() }
-  /** Gen as the right-hand-side in TAC */
-  toAddr() { return this }
 }
 
 /** Identifier implement. @extends Expr */
@@ -638,15 +742,32 @@ class Id extends Expr {
   constructor(id, p, b) {
     super(id, p);
     this.offset = b;
-    this.tag = ExprTag.ID;
+    this.tag = ExprTag.REF;
     this.lastRead = null;
     this.lastWrite = null;
     this.value = null;
+    this.reg = null
   }
   /* offset represents UID */
-  toScbString(scb) { return this.target.toString() + " " + scb }
+  toString(s) { if (!s) return this.reg.toString(); else return this.op.toString() }
   genRightSide() { if (this.type == Type.Int) return this; else return this.value }
   reduce() { if (this.type == Type.Int) return this; else return this.value }
+}
+
+/** Temp variable implement. @extends Expr */
+class Temp extends Expr {
+  /**
+   * @param {Type} p - Type of temp
+   */
+  constructor(p) {
+    super(Word.temp, p);
+    this.number = ++Temp.count;
+    this.tag = ExprTag.REF;
+    this.lastRead = null;
+    this.lastWrite = null;
+    this.reg = null
+  }
+  toString(s) { if (!s) return this.reg.toString(); else return "t" + this.number }
 }
 
 /** Expression with an operator. @extends Expr */
@@ -657,12 +778,11 @@ class Op extends Expr {
    */
   constructor(tok, p) { super(tok, p) }
   reduce() {
-    var x = this.genRightSide()  // = this
+    var x = this.genRightSide()
       , t = new Temp(this.type);
-    this.emitassign(t.toAddr(), x.toAddr());
+    this.emitassign(t, x);
     return t
   }
-  toAddr() { return this.genRightSide() }
 }
 
 /** Arith expression implement. @extends Op */
@@ -680,9 +800,8 @@ class Arith extends Op {
     this.tag = ExprTag.ARITH;
     if (this.type == void 0) this.error("Type mismatch")
   }
-  genRightSide() { return new Arith(this.op, this.expr1.reduce(this.op), this.expr2.reduce(this.op)) }
+  genRightSide() { return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce()) }
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
-  toAddr() { return new Arith(this.op, this.expr1.reduce(this.op).toAddr(), this.expr2.reduce(this.op).toAddr()) }
 }
 
 /** 
@@ -705,18 +824,23 @@ class GetScore extends Op {
     if (x1.type != Type.String && x1.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x1.type.lexeme);
     if (x2.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x2.type.lexeme);
   }
-  genRightSide() { return new GetScore(this.op, this.target, this.scb.reduce()) }
-  toString() { return this.scb.toString() + " " + this.op.toString() + " " + this.target.toString() }
-  toScbString() { return this.target.toString() + " " + this.scb.toString() }
+  genRightSide() { return new GetScore(this.op, this.target.reduce(this.tag), this.scb.reduce()) }
+  toString() { return this.target.toString() + " " + this.scb.toString() }
   /**
-   * @param {Token} tok - Token of the operator
+   * @param {Boolean} a - Only CompoundAssign uses this param.
+   * 
+   * When param a == ExprTag.ASSICOMP, then reduce() acts the same as genRightSide()
    */
-  reduce(tok) {
-    var x = this.genRightSide()  // = this
-      , t = new Temp(Type.Int);
-    this.target.type == Type.String ? this.emitassign(t.toAddr(), x.toAddr()) :
-      this.emitassigncomp(t.toAddr(), tok, x.toAddr());
-    return t
+  reduce(a) {
+    var x = this.genRightSide()
+      , t;
+    if (a == ExprTag.ASSICOMP)
+      return x
+    else {
+      t = new Temp(Type.Int);
+      this.emitassign(t, x);
+      return t
+    }
   }
 }
 
@@ -733,27 +857,13 @@ class Unary extends Op {
     this.tag = ExprTag.UNARY;
     if (this.type == void 0) this.error("Type mismatch")
   }
-  reduce() {
-    var x = this.genRightSide()  // = this
-      , t = new Temp(this.type);
-    if (x.op == Word.minus) {
-      this.emitassign(t.toAddr(), new Arith(new Token('*'), new Constant(new NumericLiteral(-1)), x.expr));
-    }
-    return t
-  }
   genRightSide() {
-    return new Unary(this.op, this.expr.reduce())
+    if (this.op == Word.minus)
+      return new Arith(new Token('*'), new Constant(new NumericLiteral(-1)), this.expr.reduce());
+    else
+      return new Unary(this.op, this.expr.reduce())
   }
   toString() { return this.op.toString() + " " + this.expr.toString() }
-}
-
-/** Temp variable implement. @extends Expr */
-class Temp extends Expr {
-  /**
-   * @param {Type} p - Type of temp
-   */
-  constructor(p) { super(Word.temp, p); this.number = ++Temp.count; this.tag = ExprTag.TEMP; this.lastRead = null; this.lastWrite = null }
-  toString() { return "t" + this.number }
 }
 
 /** Constant implement @extends Expr */
@@ -764,7 +874,7 @@ class Constant extends Expr {
    */
   constructor(a, b) {
     if (b) super(a, b);
-    else super(new NumericLiteral(a), Type.Int);
+    else super(a, Type.Int);
     this.tag = ExprTag.CONST
   }
   static True = new Constant(Word.True, Type.Bool);
@@ -772,6 +882,14 @@ class Constant extends Expr {
   jumping(t, f) {
     if (this == Constant.True && t != 0) this.emitgoto(t);
     if (this == Constant.False && f != 0) this.emitgoto(f);
+  }
+  reduce(a) {
+    if (this.type == Type.Int && !a) {
+      var x = this.genRightSide()
+        , t = new Temp(Type.Int);
+      this.emitassign(t, x);
+      return t
+    } else return this
   }
 }
 
@@ -800,8 +918,8 @@ class AssignExpr extends Expr {
   }
   gen() { this.genRightSide() }
   genRightSide() {
-    if (this.id.type == Type.Int) {
-      this.emitassign(this.id.toAddr(), this.expr.genRightSide().toAddr());
+    if (this.id.type == Type.Int || this.id.tag == ExprTag.GS) {
+      this.emitassign(this.id, this.expr.genRightSide());
       return this.id
     } else {
       return this.id.value = this.expr.genRightSide();
@@ -820,11 +938,13 @@ class CompoundAssignExpr extends AssignExpr {
    */
   constructor(i, x, op) { super(i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
   genRightSide() {
+    var x;
     if (this.id.type == Type.Selector && this.expr.type == Type.String) {
-      this.emitassigncomp(this.id.toAddr(), this.op, this.expr.genRightSide().toAddr());
-      return this.expr.genRightSide()
+      x = this.expr.genRightSide();
+      this.emitassigncomp(this.id, this.op, x);
+      return x
     } else {
-      this.emitassign(this.id, this.expr.reduce().toAddr())
+      this.emitassigncomp(this.id, this.op, this.expr.reduce(this.tag));
       return this.id
     }
   }
@@ -842,7 +962,7 @@ class Prefix extends CompoundAssignExpr {
       this.error("Invalid left-hand side expression in prefix operation");
     this.tag = ExprTag.PREF
   }
-  genRightSide() { this.emitassign(this.id.toAddr(), this.op); return this.id }
+  genRightSide() { this.emitassign(this.id, this.op); return this.id }
 }
 
 /** 
@@ -862,7 +982,7 @@ class Postfix extends CompoundAssignExpr {
       this.error("Invalid left-hand side expression in postfix operation");
     this.tag = ExprTag.POSTF
   }
-  genRightSide() { this.emitassign(this.id.toAddr(), this.op); return this.id }
+  genRightSide() { this.emitassign(this.id, this.op); return this.id }
 }
 
 /** Selector implement. @extends Expr */
@@ -871,12 +991,20 @@ class Selector extends Expr {
    * @param {Token} tok - Token of selector
    */
   constructor(tok) { super(tok, Type.Selector); this.sel = tok; this.tag = ExprTag.SELECTOR }
-  reduce() {
-    var t = new Temp(Type.Int);
-    this.emitassign(t.toAddr(), this.toAddr());
-    return t
+  /**
+   * @param {Boolean} a - Only GetScore uses this param.
+   * 
+   * When param a == ExprTag.GS, then reduce() acts the same as genRightSide()
+   */
+  reduce(a) {
+    if (a == ExprTag.GS) return this
+    else {
+      var t = new Temp(Type.Int);
+      this.emitassign(t, this);
+      return t
+    }
   }
-  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
+  jumping(t, f) { this.emitjumps(this, t, f) }
   toString() { return this.sel.toString() }
 }
 
@@ -972,7 +1100,23 @@ class Rel extends Logical {
     else return void 0
   }
   jumping(t, f) {
-    this.emitjumps(new Rel(this.op, this.expr1.reduce(), this.expr2.reduce()), t, f)
+    var x1 = this.expr1.reduce(this.tag), x2 = this.expr2.reduce(this.tag);
+    if (this.expr1.tag == ExprTag.CONST)
+      this.emitjumps(new Rel(Rel.move(this.op), x2, x1), t, f);
+    else this.emitjumps(new Rel(this.op, x1, x2), t, f);
+  }
+  static move(t) {
+    switch (t.tag) {
+      case "<":
+        return new Token(">");
+      case ">":
+        return new Token("<");
+      case "<=":
+        return new Token(">=");
+      case ">=":
+        return new Token("<=");
+    }
+    return t
   }
 }
 
@@ -981,7 +1125,7 @@ class Rel extends Logical {
  * Produces direct access to vanilla command in MCBE.
  * @extends Expr 
  */
-class VanillaCmd extends Expr {
+class VanillaCmdNoTag extends Expr {
   /**
    * @param {Token} tok - Token of vanilla command
    */
@@ -999,6 +1143,56 @@ class VanillaCmd extends Expr {
     this.emitassign(temp, Constant.False);
     this.emitlabel(a);
     return temp
+  }
+  reduce() { return this.genRightSide() }
+}
+
+/**
+ * Tagged vanilla command.
+ * Involve expressions in vanilla command
+ * @extends Expr 
+ */
+class VanillaCmdTag extends Expr {
+  /**
+   * @param {Expr} x - Expression in this segment
+   * @param {Token} tok - Token of this segment
+   * @param {VanillaCmdTag} next - Next segment
+   */
+  constructor(x, tok, next) {
+    super(tok, Type.Bool);
+    this.expr = x;
+    this.next = next;
+    this.tag = ExprTag.VANICMD
+  }
+  gen() { this.emitvanilla(this.toAddr()) }
+  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
+  toString() {
+    var r = "";
+    if (this.expr)
+      r += this.expr.toString();
+    r += this.op.toString();
+    if (this.next)
+      r += this.next.toString();
+    return r
+  }
+  genRightSide() {
+    var f = this.newlabel()
+      , a = this.newlabel()
+      , temp = new Temp(this.type);
+    this.jumping(0, f);
+    this.emitassign(temp, Constant.True);
+    this.emitgoto(a);
+    this.emitlabel(f);
+    this.emitassign(temp, Constant.False);
+    this.emitlabel(a);
+    return temp
+  }
+  /** Reduce all expressions the vanilla cmd contains */
+  toAddr() {
+    var x, t;
+    if (this.expr) x = this.expr.reduce(this.tag);
+    t = this.next ? this.next.toAddr() : void 0;
+    return new VanillaCmdTag(x, this.op, t)
   }
   reduce() { return this.genRightSide() }
 }
@@ -1106,12 +1300,11 @@ class Parser {
       if (p != Type.Int && p != Type.Bool)
         this.error("Invalid constant declaration: Constant must have an initial value.")
       return new AssignExpr(id, new Constant(new NumericLiteral(0)));
-    } else if (this.look.tag == '=') {
-      this.move();
-      var stmt = new AssignExpr(id, this.assign());
-      this.match(";");
-      return stmt
     }
+    this.match("=");
+    var stmt = new AssignExpr(id, this.assign());
+    this.match(";");
+    return stmt
   }
 
   type() { var p = this.look; this.match(Tag.BASIC); return p; }
@@ -1176,7 +1369,7 @@ class Parser {
         return this.Block(Mode.CP);
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
+      case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
         this.match(';');
         return x;
@@ -1225,7 +1418,7 @@ class Parser {
         return this.MBlock();
       case Tag.BASIC:
         return this.decl();
-      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
+      case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
         this.match(';');
         return x;
@@ -1320,7 +1513,11 @@ class Parser {
       case Tag.VANICMD:
         x = this.look;
         this.move();
-        return new VanillaCmd(x);
+        return new VanillaCmdNoTag(x);
+      case Tag.VANICMDHEAD:
+        x = this.look;
+        this.move();
+        return new VanillaCmdTag(void 0, x, this.vaniCmdTag());
       case Tag.STRING:
         x = this.look;
         this.move();
@@ -1333,6 +1530,16 @@ class Parser {
         this.errorUnexp();
         return x;
     }
+  }
+
+  vaniCmdTag() {
+    var x = this.assign(), t = this.look;
+    this.move();
+    if (t.tag == Tag.VANICMDBODY)
+      return new VanillaCmdTag(x, t, this.vaniCmdTag());
+    if (t.tag == Tag.VANICMDTAIL)
+      return new VanillaCmdTag(x, t, void 0);
+    this.errorUnexp();
   }
 }
 
@@ -1352,14 +1559,14 @@ function Generator(W) {
         switch (Inst.type) {
           case "assign": case "assigncomp":
             x1 = Inst.id;
-            if ((x1.tag & ~0x01) == ExprTag.ID) x1.lastWrite = Inst;
+            if (x1.tag == ExprTag.REF) x1.lastWrite = Inst;
           case "if": case "iffalse":
             x2 = Inst.expr;
-            if ((x2.tag & ~0x01) == ExprTag.ID) x2.lastRead = Inst;
-            else if (x2.tag == ExprTag.UNARY && x2.expr.tag & ~0x01 == ExprTag.ID) x2.expr.lastRead = Inst;
+            if (x2.tag == ExprTag.REF) x2.lastRead = Inst;
+            else if (x2.tag == ExprTag.UNARY && x2.expr.tag == ExprTag.REF) x2.expr.lastRead = Inst;
             else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
-              if ((x2.expr1.tag & ~0x01) == ExprTag.ID) x2.expr1.lastRead = Inst;
-              if ((x2.expr2.tag & ~0x01) == ExprTag.ID) x2.expr2.lastRead = Inst;
+              if (x2.expr1.tag == ExprTag.REF) x2.expr1.lastRead = Inst;
+              if (x2.expr2.tag == ExprTag.REF) x2.expr2.lastRead = Inst;
             }
         }
       }
@@ -1367,7 +1574,7 @@ function Generator(W) {
   }
 }
 
-var varDesc = [], scb = "bkstage";
+var varDesc = [], $DefaultScb = "bkstage";
 
 var RegisterAssign = function () {
   var regDesc = [];
@@ -1384,14 +1591,15 @@ var RegisterAssign = function () {
       regDesc.push({
         var: v,
         number: regDesc.length,
-        toString: function () { return "R" + this.number }
+        toString: function () { return "R" + this.number + " " + $DefaultScb }
       });
       v.reg = regDesc[regDesc.length - 1];
     },
     releaseReg: function (v) {
       regDesc[v.reg.number].var = null;
       v.reg = null;
-    }
+    },
+    init: function () { regDesc = [] }
   }
 }();
 
@@ -1404,90 +1612,37 @@ function CP(M) {
       switch (Inst.type) {
         case "assign": case "assigncomp":
           x1 = Inst.id;
-          if ((x1.tag & ~0x01) == ExprTag.ID) x1.lastWrite = Inst;
+          if (x1.tag == ExprTag.REF) x1.lastWrite = Inst;
         case "if": case "iffalse":
           x2 = Inst.expr;
-          if ((x2.tag & ~0x01) == ExprTag.ID) x2.lastRead = Inst;
-          else if (x2.tag == ExprTag.UNARY && x2.expr.tag & ~0x01 == ExprTag.ID) x2.expr.lastRead = Inst;
+          if (x2.tag == ExprTag.REF) x2.lastRead = Inst;
+          else if (x2.tag == ExprTag.UNARY && x2.expr.tag == ExprTag.REF) x2.expr.lastRead = Inst;
           else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
-            if ((x2.expr1.tag & ~0x01) == ExprTag.ID) x2.expr1.lastRead = Inst;
-            if ((x2.expr2.tag & ~0x01) == ExprTag.ID) x2.expr2.lastRead = Inst;
+            if (x2.expr1.tag == ExprTag.REF) x2.expr1.lastRead = Inst;
+            if (x2.expr2.tag == ExprTag.REF) x2.expr2.lastRead = Inst;
           }
       }
     }
   }
 
+  var state = new Temp(Type.Int);
   for (let i = 0; i < M.length; i++) {
     var BB = M[i];
     for (let j = 0; j < BB.length; j++) {
       var Inst = BB[j], Chain = BB.chain, x1, x2;
       switch (Inst.type) {
         case "vanilla":
-          console.log(`VANI ${Inst.cmd}`);
+          console.log(`VANI \`${Inst.cmd.toString()}\``);
+          Inst.gen(Chain);
           break;
-        case "assign":
-          var x21, x22;
-          x1 = Inst.id, x2 = Inst.expr;
-          if ((x1.tag & ~0x01) == ExprTag.ID) {
-            if (!x1.reg) RegisterAssign.getReg(x1);
-            switch (x2.tag) {
-              case ExprTag.CONST:
-                console.log(`SET ${x1.reg} ${x2.op}`);
-                break;
-              case ExprTag.GS:
-                console.log(`OP ${x1.reg} = ${x2.toScbString()}`);
-                break;
-              case ExprTag.ID: case ExprTag.TEMP:
-                x1.reg != x2.reg && console.log(`OP ${x1.reg} = ${x2.reg}`);
-                if (x2.lastRead == Inst) RegisterAssign.releaseReg(x2);
-                break;
-              case ExprTag.SELECTOR:
-                console.log(`SET ${x1.reg} 0`);
-                console.log(`VANI \`execute ${x2} ~~~ scb ply add ${x1.reg} 1\``);
-                break;
-              case ExprTag.ARITH:
-                x21 = x2.expr1, x22 = x2.expr2;
-                if ((x21.tag & ~0x01) == ExprTag.ID)
-                  x1.reg != x21.reg && console.log(`OP ${x1.reg} = ${x21.reg}`);
-                else if (x21.tag == ExprTag.CONST)
-                  console.log(`SET ${x1.reg} ${x21.op}`);
-                else if (x21.tag == ExprTag.CONST)
-                  console.log(`OP ${x1.reg} = ${x2.toScbString()}`);
-                if ((x22.tag & ~0x01) == ExprTag.ID)
-                  console.log(`OP ${x1.reg} ${x2.op.tag}= ${x22.reg}`);
-                else if (x22.tag == ExprTag.CONST)
-                  console.log(`OP ${x1.reg} ${x2.op.tag}= ${x22.op}`);
-                if (x21.lastRead == Inst) RegisterAssign.releaseReg(x21);
-                if (x22.lastRead == Inst) RegisterAssign.releaseReg(x22);
-                break;
-              case "++":
-                console.log(`ADD ${x1.reg} 1`);
-                break;
-              case "--":
-                console.log(`ADD ${x1.reg} -1`);
-                break;
-            }
-          }
+        case "assign": case "assigncomp":
+          Inst.gen(Chain);
           break;
-        case "assigncomp":
-          x1 = Inst.id, x2 = Inst.expr;
-          if (x1.tag == ExprTag.SELECTOR && x2.tag == ExprTag.CONST) {
-            if (Inst.op.tag == '+=')
-              console.log(`VANI \`tag ${x1} add ${x2}\``);
-            else if (Inst.op.tag == '-=')
-              console.log(`VANI \`tag ${x1} remove ${x2}\``);
-          } else if ((x1.tag & ~0x01) == ExprTag.ID && x2.tag == ExprTag.GS) {
-            if (!x1.reg) RegisterAssign.getReg(x1);
-            switch (Inst.op.tag) {
-              case '+': case '-':
-                console.log(`SET ${x1.reg} 0`);
-                console.log(`OP ${x1.reg} += ${x2.toScbString()}`);
-                break;
-              case '*': case '/': case '%':
-                console.log(`SET ${x1.reg} 1`);
-                console.log(`OP ${x1.reg} *= ${x2.toScbString()}`);
-                break;
-            }
+        case "if":
+          switch (Inst.expr.tag) {
+            case ExprTag.VANICMD:
+              console.log(`VANI \`${Inst.cmd.toString()}\``);
+              break;
           }
           break;
       }
@@ -1502,7 +1657,6 @@ function run() {
   Token.uid = 0;
   ASTNode.labels = 0;
   Temp.count = 0;
-  CB.commandblocks = [];
   var parse = new Parser(str);
   parse.program();
   console.log(temp1 = Parser.modules);

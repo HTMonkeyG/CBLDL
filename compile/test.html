@@ -2,6 +2,10 @@
 <meta charset="utf8">
 <textarea id="input" rows="50" cols="50" style="resize: none;width: 400px;display: inline-block;">
 chain pulse {
+  `a${"a"->"b" = 0}b`;
+}
+
+chain pulse {
   int i; int j;
   i = "e" -> "a";
   i = @e -> "a";
@@ -9,6 +13,7 @@ chain pulse {
   i = i - j * i % 10;
   @e += "aaa";
   @a -= "bbb";
+  `kill ${@e}`;
   if (i >= 100) `say i`;
   if (@e[type=bee]) `say j`;
   if (@e[tag=son] > 100) `say k`;
