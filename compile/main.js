@@ -967,7 +967,9 @@ class Prefix extends CompoundAssignExpr {
 
 /** 
  * Postfix expression implement.
+ * 
  * Statement i++ behaves the same as ++i:
+ * 
  * add 1 to i, then return the value of i
  * @extends CompoundAssignExpr
  */
@@ -990,7 +992,7 @@ class Selector extends Expr {
   /**
    * @param {Token} tok - Token of selector
    */
-  constructor(tok) { super(tok, Type.Selector); this.sel = tok; this.tag = ExprTag.SELECTOR }
+  constructor(tok) { super(tok, Type.Selector); this.tag = ExprTag.SELECTOR }
   /**
    * @param {Boolean} a - Only GetScore uses this param.
    * 
@@ -1005,7 +1007,6 @@ class Selector extends Expr {
     }
   }
   jumping(t, f) { this.emitjumps(this, t, f) }
-  toString() { return this.sel.toString() }
 }
 
 /** Logical expression implement. @extends Expr */
@@ -1164,8 +1165,8 @@ class VanillaCmdTag extends Expr {
     this.next = next;
     this.tag = ExprTag.VANICMD
   }
-  gen() { this.emitvanilla(this.toAddr()) }
-  jumping(t, f) { this.emitjumps(this.toAddr(), t, f) }
+  gen() { this.emitvanilla(this.reduceAll()) }
+  jumping(t, f) { this.emitjumps(this.reduceAll(), t, f) }
   toString() {
     var r = "";
     if (this.expr)
@@ -1188,10 +1189,10 @@ class VanillaCmdTag extends Expr {
     return temp
   }
   /** Reduce all expressions the vanilla cmd contains */
-  toAddr() {
+  reduceAll() {
     var x, t;
     if (this.expr) x = this.expr.reduce(this.tag);
-    t = this.next ? this.next.toAddr() : void 0;
+    t = this.next ? this.next.reduceAll() : void 0;
     return new VanillaCmdTag(x, this.op, t)
   }
   reduce() { return this.genRightSide() }
