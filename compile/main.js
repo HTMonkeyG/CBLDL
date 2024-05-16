@@ -891,6 +891,21 @@ class Constant extends Expr {
       return t
     } else return this
   }
+  static from(v, p) {
+    var t;
+    switch (p) {
+      case Type.String:
+        t = new StringLiteral(v);
+        break;
+      case Type.Selector:
+        t = new SelectorLiteral(v);
+        break;
+      case Type.Int: default:
+        t = new NumericLiteral(v);
+        break;
+    }
+    return new Constant(t, p)
+  }
 }
 
 /** Assignment implement. @extends Expr */
@@ -1216,7 +1231,7 @@ class Parser {
   move() { this.look = Lexer.scan(); }
   error(s) { throw new Error("Near line " + Lexer.getLine() + ": " + s) }
   match(t) { if (this.look.tag == t) this.move(); else this.error("Syntax error: Unexpected " + this.look.tag) }
-  errorUnexp() { this.error("Syntax error: Unexpected " + this.look.tag) }
+  errorUnexp(t) { this.error("Syntax error: Unexpected token " + (t ? t : this.look.tag)) }
 
   program() {
     if (this.done) return;
@@ -1300,7 +1315,7 @@ class Parser {
       this.match(";");
       if (p != Type.Int && p != Type.Bool)
         this.error("Invalid constant declaration: Constant must have an initial value.")
-      return new AssignExpr(id, new Constant(new NumericLiteral(0)));
+      return new AssignExpr(id, Constant.from(0));
     }
     this.match("=");
     var stmt = new AssignExpr(id, this.assign());
@@ -1480,14 +1495,22 @@ class Parser {
   }
 
   getScore() {
-    var x = this.primary();
+    var x = this.primary(), t;
     if (this.look.tag == Tag.GS) {
       this.move();
       return new GetScore(Word.gs, x, this.primary())
+    } else if (this.look.tag == ".") {
+      this.move();
+      if (this.look.tag == Tag.ID) {
+        t = this.look.toString();
+        this.move();
+        return new GetScore(Word.gs, x, Constant.from(t, Type.String));
+      }
+      else this.errorUnexp(i)
     } else return x
   }
 
-  primary() {
+  primary(c) {
     var x = void 0;
     switch (this.look.tag) {
       case '(':
@@ -1507,8 +1530,9 @@ class Parser {
         return x;
       case Tag.ID:
         x = this.look.toString();
+        if (c) { this.move(); return this.look; }
         var id = this.top.get(this.look);
-        if (id == void 0) this.error(x + " undeclared");
+        if (id == void 0 && !c) this.error(x + " is undeclared");
         this.move();
         return id;
       case Tag.VANICMD:

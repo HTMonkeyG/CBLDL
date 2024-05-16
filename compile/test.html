@@ -7,9 +7,9 @@ chain pulse {
 
 chain pulse {
   int i; int j;
-  i = "e" -> "a";
+  i = "e".a;
   i = @e -> "a";
-  j = @e -> "a" + @e;
+  j = @e -> "a" + "e" -> "a";
   i = i - j * i % 10;
   @e += "aaa";
   @a -= "bbb";
