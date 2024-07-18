@@ -22,7 +22,6 @@ const Tag = {
   GE: 263,
   ID: 264,
   IF: 265,
-  INDEX: 266,
   LE: 267,
   MINUS: 268,
   NE: 269,
@@ -45,6 +44,7 @@ const Tag = {
   VANICMDHEAD: 287,
   VANICMDBODY: 288,
   VANICMDTAIL: 289,
+  INITIAL: 290,
   LF: 0xFFFE,
   EOF: 0xFFFF
 };
@@ -70,12 +70,56 @@ const ExprTag = {
 
 const Mode = { CP: 0, CR: 1, M: 2, DECL: 3 };
 
-class Token { constructor(t) { this.tag = t; this.uid = Token.uid++ } toString() { return this.tag } static uid = 0; static EOF = new Token(Tag.EOF) }
-class NumericLiteral extends Token { constructor(v) { super(Tag.NUM); this.value = v } toString() { return this.value.toString() } }
-class StringLiteral extends Token { constructor(v) { super(Tag.STRING); this.value = v } toString() { return '"' + this.value + '"' } }
-class VaniCmdLiteral extends Token { constructor(v, t) { super(t ? t : Tag.VANICMD); this.cmd = v } toString() { return this.cmd } }
-class SelectorLiteral extends Token { constructor(v) { super(Tag.SELECTOR); this.value = v } toString() { return this.value } }
 class HashTable { constructor() { this.KV = {} } put(k, v) { this.KV[k] = v; } get(k) { return this.KV[k] } }
+
+/** A syntax token */
+class Token {
+  /** 
+   * @param {*} t - Tag of the token
+   */
+  constructor(t) { this.tag = t; this.uid = Token.uid++ }
+  toString() { return this.tag }
+  static uid = 0;
+  static EOF = new Token(Tag.EOF)
+}
+
+/** A numeric token */
+class NumericLiteral extends Token {
+  /**
+   * @param {Number} v - Numeric value
+   */
+  constructor(v) { super(Tag.NUM); this.value = v }
+  toString() { return this.value.toString() }
+  isInteger() { return Math.isInteger(this.value) }
+}
+
+/** A string token */
+class StringLiteral extends Token {
+  /**
+   * @param {String} v - String value
+   */
+  constructor(v) { super(Tag.STRING); this.value = v }
+  toString() { return '"' + this.value + '"' }
+}
+
+/** A vanilla command token */
+class VaniCmdLiteral extends Token {
+  /**
+   * @param {String} v - String value of this segment
+   * @param {*} t - Tag
+   */
+  constructor(v, t) { super(t ? t : Tag.VANICMD); this.cmd = v }
+  toString() { return this.cmd }
+}
+
+/** A selector */
+class SelectorLiteral extends Token {
+  /**
+   * @param {String} v - String value of selector
+   */
+  constructor(v) { super(Tag.SELECTOR); this.value = v }
+  toString() { return this.value }
+}
 
 class Word extends Token {
   constructor(s, t) { super(t); this.lexeme = s }
@@ -95,43 +139,62 @@ class Word extends Token {
 }
 
 class Type extends Word {
-  constructor(s, tag, w) {
-    super(s, tag);
-    this.width = w;
-  }
+  constructor(s, tag, c) { super(s, tag); this.const = c }
 
-  static Int = new Type("int", Tag.BASIC, 4);
-  static Bool = new Type("bool", Tag.BASIC, 1);
-  static String = new Type("string", Tag.BASIC, 0);
-  static Vector = new Type("vec", Tag.BASIC, 0);
-  static Selector = new Type("sel", Tag.BASIC, 0);
+  isConst() { return this.const }
+
+  static Int = new Type("int", Tag.BASIC, false);
+  static Float = new Type("float", Tag.BASIC, true);
+  static Bool = new Type("bool", Tag.BASIC, false);
+  static String = new Type("string", Tag.BASIC, true);
+  static Vector = new Type("vec", Tag.BASIC, true);
+  static Selector = new Type("sel", Tag.BASIC, true);
+
+  static Const = new Type("const", Tag.BASIC, true);
+  static Var = new Type("var", Tag.BASIC, false);
 
   static numeric(p) {
     if (p == Type.Int || p == Type.Vector) return !0;
     else return !1
   }
 
-  // 类型转换
   static max(p1, p2) {
     if (p1 == p2) return p1;
     else if (p1 == Type.Int && p2 == Type.Vector) return Type.Int;
     else if (p2 == Type.Int && p1 == Type.Vector) return Type.Int;
-    else if (p1 == Type.Selector && p2 == Type.Vector) return Type.Int;
-    else if (p2 == Type.Selector && p1 == Type.Vector) return Type.Int;
     else if (p1 == Type.Int && p2 == Type.Selector) return Type.Int;
     else if (p2 == Type.Int && p1 == Type.Selector) return Type.Int;
+    else if (p1 == Type.Selector && p2 == Type.Vector) return Type.Int;
+    else if (p2 == Type.Selector && p1 == Type.Vector) return Type.Int;
     else return void 0;
   }
 
-  // 类型转换
+  /** 
+   * Convert given expression to boolean 
+   * @param {Expr} x - Expression
+   */
   static toBoolean(x) {
     if (x.type == Type.Int || x.type == Type.Vector || x.type == Type.Selector)
-      return new Rel(Word.ne, x, new Constant(new NumericLiteral(0)))
+      return new Rel(Word.ne, x, Constant.from(0))
+    else return x;
+  }
+
+  /** 
+   * Convert given expression to int 
+   * @param {Expr} x - Expression
+   */
+  static toInt(x) {
+    if (x.type == Type.Vector || x.type == Type.Selector)
+      return new Rel(Word.ne, x, Constant.from(0))
     else return x;
   }
 }
 
-var Lexer = function () {
+/**
+ * Lexer analyzer
+ * @param {String} s - Input program string 
+ */
+function Lexer(s) {
   function readNext() {
     if (ptr > str.length) throw new Error("String Ends");
     return str[ptr++]
@@ -145,14 +208,15 @@ var Lexer = function () {
     return !0
   }
   function isch(c) { if (peek != c) return !1; peek = " "; return !0 }
-  function scan() {
-    // 跳过空白
+  function skipWhitespace() {
     for (; canRead(); readch()) {
       if (peek === ' ' || peek === "\t") continue;
       else if (peek === "\n") line += 1;
       else break;
     }
-
+  }
+  function scan() {
+    skipWhitespace();
     if (!canRead()) return Token.EOF;
 
     switch (peek) {
@@ -266,7 +330,15 @@ var Lexer = function () {
   }
 
   function isUnquotedStringStart() {
-    return /[a-zA-Z_\u4e00-\u9fa5]/.test(peek)
+    return /[a-z$A-Z_\u4e00-\u9fa5]/.test(peek)
+    //return !/[\ ~`!@#%\^&\*\(\)\-=+\|\\'":;\?\/\.><,\[\]\}\{0-9]/.test(peek)
+    //return !/[\ -#%-@\[-\^`\{-\~]/.test(peek)
+  }
+
+  function isUnquotedString() {
+    return /[a-z0-9$A-Z_\u4e00-\u9fa5]/.test(peek)
+    //return !/[\ ~`!@#%\^&\*\(\)\-=+\|\\'":;\?\/\.><,\[\]\}\{]/.test(peek)
+    //return !/[\ -#%-\/:-@\[-\^`\{-\~]/.test(peek)
   }
 
   function readStringUnquoted() {
@@ -275,7 +347,7 @@ var Lexer = function () {
     result += peek;
     while (canRead()) {
       readch();
-      if (!/[a-zA-Z0-9_\u4e00-\u9fa5]/.test(peek)) break;
+      if (!isUnquotedString()) break;
       result += peek;
     }
     return result
@@ -329,58 +401,53 @@ var Lexer = function () {
   }
 
   var words = new HashTable()
-    , str = ""
+    , str = s.replace(/(\/\*(.|\r?\n)*\*\/)|(\/\/.*\n)/g, "") // Ignore comments
     , ptr = 0
     , peek = " "
     , line = 1
     , readingVaniCmd = !1;
-  function init(s) {
-    words = new HashTable(),
-      str = s,
-      ptr = 0,
-      peek = " ",
-      line = 1;
-    /* Reserved words */
-    reserve(new Word("if", Tag.IF));
-    reserve(new Word("else", Tag.ELSE));
-    reserve(new Word("while", Tag.WHILE));
-    reserve(new Word("do", Tag.DO));
-    reserve(new Word("break", Tag.BREAK));
-    reserve(new Word("chain", Tag.CHAIN));
-    reserve(new Word("pulse", Tag.PULSE));
-    reserve(new Word("repeating", Tag.REPEATING));
-    reserve(new Word("module", Tag.MODULE));
-    reserve(new Word("execute", Tag.EXECUTE));
-    reserve(new Word("delayh", Tag.DELAYH));
-    reserve(Word.False);
-    reserve(Word.True);
-    reserve(Type.Int);
-    reserve(Type.Bool);
-    reserve(Type.String);
-    reserve(Type.Selector);
-    reserve(Type.Vector);
-  }
 
-  return {
-    scan: scan,
-    init: init,
-    getLine() { return line }
-  }
-}();
+  /* Reserved words */
+  reserve(new Word("if", Tag.IF));
+  reserve(new Word("else", Tag.ELSE));
+  reserve(new Word("while", Tag.WHILE));
+  reserve(new Word("do", Tag.DO));
+  reserve(new Word("break", Tag.BREAK));
+  reserve(new Word("chain", Tag.CHAIN));
+  reserve(new Word("pulse", Tag.PULSE));
+  reserve(new Word("repeating", Tag.REPEATING));
+  reserve(new Word("module", Tag.MODULE));
+  reserve(new Word("execute", Tag.EXECUTE));
+  reserve(new Word("delayh", Tag.DELAYH));
+  reserve(new Word("initial", Tag.INITIAL));
+  reserve(Word.False);
+  reserve(Word.True);
+  //reserve(Type.Int);
+  //reserve(Type.Bool);
+  //reserve(Type.String);
+  //reserve(Type.Selector);
+  //reserve(Type.Vector);
+  reserve(Type.Const);
+  reserve(Type.Var);
 
+  this.scan = scan;
+  this.getLine = function () { return line };
+}
+
+/**
+ * 
+ */
 class Env {
   constructor(n) {
-    this.table = new HashTable();
+    this.table = new Map();
     this.prev = n;
   }
 
-  put(w, i) { this.table.put(w.uid, i) }
+  put(w, i) { this.table.set(w, i) }
 
   get(w) {
-    for (var i = this; i != void 0; i = i.prev) {
-      var found = i.table.get(w.uid);
-      if (found != void 0) return found;
-    }
+    for (var i = this, found; i != void 0; i = i.prev)
+      if ((found = i.table.get(w)), found != void 0) return found;
     return void 0
   }
 }
@@ -490,7 +557,7 @@ class TACAssign extends TACInst {
 
 /** Abstract Syntax Tree Node */
 class ASTNode {
-  constructor() { this.lexline = Lexer.getLine(); this.labels = 0; }
+  constructor() { this.lexline = ASTNode.lexer && ASTNode.lexer.getLine(); this.labels = 0; }
   static labels = 0;
   /** Throw an error */
   error(s) { throw new Error("Near line " + this.lexline + ": " + s) }
@@ -503,48 +570,48 @@ class ASTNode {
    * Gen a label as TAC.
    * @param {TACLabel} i - Label 
    */
-  emitlabel(i) { Parser.appendObj(i) }
-  emit(s) { Parser.append("\t" + s + "\n") }
+  emitlabel(i) { ASTNode.parser.appendObj(i) }
+  emit(s) { ASTNode.parser.append("\t" + s + "\n") }
   /**
    * Gen an if-goto.
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitif(t, l) { var i = new TACGoto(l, 1, t); l.mark(i); Parser.appendObj(i) }
+  emitif(t, l) { var i = new TACGoto(l, 1, t); l.mark(i); ASTNode.parser.appendObj(i) }
   /**
    * Gen a direct goto.
    * @param {TACLabel} l - Label 
    */
-  emitgoto(l) { var i = new TACGoto(l); l.mark(i); Parser.appendObj(i) }
+  emitgoto(l) { var i = new TACGoto(l); l.mark(i); ASTNode.parser.appendObj(i) }
   /**
    * Gen an iffalse-goto.
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitiffalse(t, l) { var i = new TACGoto(l, 2, t); l.mark(i); Parser.appendObj(i) }
+  emitiffalse(t, l) { var i = new TACGoto(l, 2, t); l.mark(i); ASTNode.parser.appendObj(i) }
   /** 
    * Gen a TAC operation.
    * @param {Id | GetScore} i - Condition
    * @param {Expr} e - Expression
    */
-  emitassign(i, e) { Parser.appendObj(new TACAssign(i, e)) }
+  emitassign(i, e) { ASTNode.parser.appendObj(new TACAssign(i, e)) }
   /** 
    * Gen a TAC assigncomp.
    * @param {Id | GetScore} i - Condition
    * @param {Token} o - Operator
    * @param {Expr} e - Expression
    */
-  emitassigncomp(i, o, e) { Parser.appendObj(new TACAssign(i, e, o)) }
+  emitassigncomp(i, o, e) { ASTNode.parser.appendObj(new TACAssign(i, e, o)) }
   /** 
    * Gen a vanilla command.
    * @param {VanillaCmdNoTag} c - Command
    */
-  emitvanilla(c) { Parser.appendObj(new TACVanilla(c)) }
+  emitvanilla(c) { ASTNode.parser.appendObj(new TACVanilla(c)) }
   /** 
    * Gen a delay hard.
    * @param {NumericLiteral} t - Delay time
    */
-  emitdelayh(t) { Parser.appendObj(new TACDelayH(t)) }
+  emitdelayh(t) { ASTNode.parser.appendObj(new TACDelayH(t)) }
 }
 
 /** Statement implement. @extends Stmt */
@@ -574,8 +641,8 @@ class If extends Stmt {
     if (x.type != Type.Bool && x.type != Type.Selector) this.expr = Type.toBoolean(x);
   }
   gen(b, a) {
-    var label = this.newlabel(); // stmt代码标号
-    this.expr.jumping(0, a);     // 为真时控制流穿越, 否则转向a
+    var label = this.newlabel(); // label of stmt
+    this.expr.jumping(0, a);     // Control flow crosses when expr == true
     this.emitlabel(label);
     this.stmt.gen(label, a)
   }
@@ -696,6 +763,21 @@ class Break extends Stmt {
 /** Delay hard statement. @extends Stmt */
 class DelayH extends Stmt { constructor(tok) { super(); this.delay = tok } gen(b, a) { this.emitdelayh(this.delay) } }
 
+/** 
+ * Execute statement. 
+ *
+ * Change the executor of commands
+ * @extends Stmt 
+ */
+class Execute extends Stmt {
+  constructor(x, s) {
+    super();
+    if (x.type != Type.Selector) this.error("Type error: Scoreboard must be a string, recieved: " + x.type.lexeme);
+    this.stmt = s;
+    this.expr = x;
+  }
+}
+
 /** Expression implement. @extends Stmt */
 class Expr extends Stmt {
   /**
@@ -738,20 +820,43 @@ class Id extends Expr {
    * @param {Token} id - Token of the identifier
    * @param {Type} p - Type of the identifier
    * @param {Number} b - UID of the identifier
+   * @param {Boolean} c - True if constant type
+   * @param {*|undefined} init - Initial value
    */
-  constructor(id, p, b) {
+  constructor(id, p, b, c, init) {
     super(id, p);
     this.offset = b;
     this.tag = ExprTag.REF;
+    this.const = !!c;
     this.lastRead = null;
     this.lastWrite = null;
     this.value = null;
     this.reg = null
   }
-  /* offset represents UID */
+  /** 
+   * @param {Boolean} s - Return string literal if true
+   */
   toString(s) { if (!s) return this.reg.toString(); else return this.op.toString() }
-  genRightSide() { if (this.type == Type.Int) return this; else return this.value }
-  reduce() { if (this.type == Type.Int) return this; else return this.value }
+  getConst() { return this.const }
+  /**
+   * Set initial value & type of id 
+   * @param {*} v - Initial value
+   */
+  setValue(v) {
+    if (!this.const)
+      this.error("Reference error");
+    if (v.tag != ExprTag.GS && v.tag != ExprTag.CONST && v.tag != ExprTag.SELECTOR)
+      this.error("Reference error: Can't init a const with an expression.");
+    this.type = v.type;
+    this.value = v;
+  }
+  setType(p) {
+    if (this.type)
+      this.error("Reference error: Repeated type init.");
+    this.type = p;
+  }
+  genRightSide() { if (this.const) return this.value; else return this }
+  reduce() { return this.genRightSide() }
 }
 
 /** Temp variable implement. @extends Expr */
@@ -918,7 +1023,7 @@ class AssignExpr extends Expr {
     super(void 0, x.type);
     this.id = i;
     this.expr = x;
-    if (this.check(i.type, x.type) == void 0) this.error("Type mismatch")
+    if (this.check(i.type, x.type) == void 0) this.error("Type error: Type mismatch in assign");
     this.tag = ExprTag.ASSIGN
   }
   /** Type check */
@@ -973,7 +1078,7 @@ class Prefix extends CompoundAssignExpr {
    */
   constructor(i, op) {
     super(i, i, op);
-    if (i.op.tag != Tag.ID)
+    if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
       this.error("Invalid left-hand side expression in prefix operation");
     this.tag = ExprTag.PREF
   }
@@ -995,7 +1100,7 @@ class Postfix extends CompoundAssignExpr {
    */
   constructor(i, op) {
     super(i, i, op);
-    if (i.op.tag != Tag.ID && i.op.tag != Tag.GS)
+    if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
       this.error("Invalid left-hand side expression in postfix operation");
     this.tag = ExprTag.POSTF
   }
@@ -1215,26 +1320,29 @@ class VanillaCmdTag extends Expr {
 
 class Parser {
   constructor(str) {
-    Lexer.init(str);
-    this.look = void 0; // 向前看词法单元
+    this.lexer = new Lexer(str);
+    this.look = void 0; // Lexer unit
     this.used = 0; // 用于声明变量的存储位置
     this.top = new Env(void 0); // 当前或顶层符号表
     this.done = !1;
-    Parser.result = "";
-    Parser.resultObj = void 0;
-    Parser.modules = [];
+    this.result = "";
+    this.resultObj = void 0;
+    this.modules = [];
     this.move();
   }
 
-  static append(a) { Parser.result += a }
-  static appendObj(a) { Parser.resultObj.push(a) }
-  move() { this.look = Lexer.scan(); }
-  error(s) { throw new Error("Near line " + Lexer.getLine() + ": " + s) }
+  append(a) { this.result += a }
+  appendObj(a) { this.resultObj.push(a) }
+  move() { this.look = this.lexer.scan(); }
+  error(s) { throw new Error("Near line " + this.lexer.getLine() + ": " + s) }
   match(t) { if (this.look.tag == t) this.move(); else this.error("Syntax error: Unexpected " + this.look.tag) }
   errorUnexp(t) { this.error("Syntax error: Unexpected token " + (t ? t : this.look.tag)) }
 
   program() {
     if (this.done) return;
+    while (this.look.tag == Tag.BASIC) {
+      this.declaration(true);
+    }
     while (this.look.tag != Tag.EOF) {
       var s = this.toplevel()
         , begin = s.newlabel()
@@ -1244,11 +1352,11 @@ class Parser {
       s.emitlabel(after);
       // Remove unused label and
       // Cut into base blocks
-      var r = new TAC(Parser.resultObj.mode), c = 1, d = 0, e = 0, f = null;
+      var r = new TAC(this.resultObj.mode), c = 1, d = 0, e = 0, f = null;
       // c: label counter, d: baseblock counter, 
       // e: counter of inst except label in current bb
       // f: current bb's first label
-      for (var a of Parser.resultObj) {
+      for (var a of this.resultObj) {
         var rd = (r[d] ? r[d] : (r[d] = new TACBaseBlock(d)));
         if (a.type == "label")
           /* If label is used */
@@ -1269,7 +1377,7 @@ class Parser {
         else if (a.type == "if" || a.type == "iffalse" || a.type == "goto") rd.push(a), d++, e = 0, f = null;
         else rd.push(a), e++, f = null;
       }
-      Parser.modules.push(r);
+      this.modules.push(r);
     }
   }
 
@@ -1279,48 +1387,75 @@ class Parser {
         this.move();
         if (this.look.tag == Tag.PULSE) {
           this.move();
-          Parser.resultObj = new TAC(Mode.CP);
+          this.resultObj = new TAC(Mode.CP);
           return this.Block(Mode.CP);
         } else if (this.look.tag == Tag.REPEATING) {
           this.move();
-          Parser.resultObj = new TAC(Mode.CR);
-          return this.CRBlock(Mode.CR);
+          this.resultObj = new TAC(Mode.CR);
+          return this.Block(Mode.CR);
         } else if (this.look.tag == "{") {
-          Parser.resultObj = new TAC(Mode.CP);
+          this.resultObj = new TAC(Mode.CP);
           return this.Block(Mode.CP);
         } else this.errorUnexp();
       case Tag.MODULE:
         this.move();
         if (this.look.tag == "{") {
-          Parser.resultObj = new TAC(Mode.M);
+          this.resultObj = new TAC(Mode.M);
           return this.Block(Mode.M);
         } else this.errorUnexp();
-      /*case Tag.BASIC:
-        Parser.resultObj = new TAC(Mode.DECL);
-        return this.decl();*/
       default:
         this.errorUnexp();
     }
   }
 
-  decl() {
-    // D -> type ID [= E]
+  /**
+   * Declaration statement
+   * 
+   * D -> (type ID [= E])+
+   * 
+   * @param {Boolean} onlyConst - Only allow constant, avaliable in top level
+   * @returns {Stmt}
+   */
+  declaration(onlyConst) {
     var p = this.type();
+    if (onlyConst && !p.isConst())
+      this.error("Only constants can be declared in top level.");
+
+    return this.declList(p);
+  }
+
+  declList(p) {
     var tok = this.look;
     this.match(Tag.ID);
-    var id = new Id(tok, p, this.used);
+    var id = new Id(tok, void 0, this.used, p.isConst());
     this.top.put(tok, id);
     this.used++;
-    if (this.look.tag == ';') {
-      this.match(";");
-      if (p != Type.Int && p != Type.Bool)
-        this.error("Invalid constant declaration: Constant must have an initial value.")
-      return new AssignExpr(id, Constant.from(0));
+
+    if (this.look.tag == ';' || this.look.tag == ',') {
+      tok = this.look;
+      this.move();
+      if (p.isConst())
+        this.error("Invalid constant declaration: Constant must have an initial value.");
+      id.setType(Type.Int);
+      var s = new AssignExpr(id, Constant.from(0));
+      return tok == ';' ? s : new Seq(s, this.declList(p));
     }
+
+    // Initial value
     this.match("=");
-    var stmt = new AssignExpr(id, this.assign());
-    this.match(";");
-    return stmt
+
+    var expr = this.assign(), s;
+    if (p.isConst())
+      id.setValue(expr), s = Stmt.Null;
+    else
+      id.setType(expr.type), s = new AssignExpr(id, expr);
+
+    if (this.look.tag == ';' || this.look.tag == ',') {
+      tok = this.look;
+      this.move();
+      return tok == ';' ? s : new Seq(s, this.declList(p));
+    }
+    this.errorUnexp();
   }
 
   type() { var p = this.look; this.match(Tag.BASIC); return p; }
@@ -1336,12 +1471,13 @@ class Parser {
   }
 
   Stmts(m) {
-    var f = [this.CPStmt, this.CRStmt, this.MStmt];
+    var f = [this.CPStmt, this.CPStmt, this.MStmt];
     if (this.look.tag == '}') return Stmt.Null;
     else if (this.look.tag == Tag.EOF) return Stmt.Null;
     else return new Seq(f[m].call(this), this.Stmts(m))
   }
 
+  /** Statement */
   CPStmt() {
     var x, s1, s2;
     switch (this.look.tag) {
@@ -1358,8 +1494,8 @@ class Parser {
       case "{":
         return this.Block(Mode.CP);
       case Tag.BASIC:
-        return this.decl();
-      case Tag.VANICMD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
+        return this.declaration();
+      case Tag.VANICMD: case Tag.ID: case Tag.VANICMDHEAD: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
         this.match(';');
         return x;
@@ -1368,35 +1504,7 @@ class Parser {
     }
   }
 
-  CPStmt() {
-    var x, s1, s2;
-    switch (this.look.tag) {
-      case ';':
-        this.move();
-        return Stmt.Null;
-      case Tag.IF:
-        this.match(Tag.IF), this.match("("), x = this.assign(), this.match(")");
-        s1 = this.CPStmt();
-        if (this.look.tag != Tag.ELSE) return new If(x, s1);
-        this.match(Tag.ELSE);
-        s2 = this.CPStmt();
-        return new Else(x, s1, s2);
-      case "{":
-        return this.Block(Mode.CP);
-      case Tag.BASIC:
-        return this.decl();
-      case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
-        x = this.assign();
-        this.match(';');
-        return x;
-      case Tag.DELAYH:
-        this.match(Tag.DELAYH); x = this.look; this.match(Tag.NUM); this.match(';')
-        return new DelayH(x);
-      default:
-        this.errorUnexp()
-    }
-  }
-
+  /** StatementNoDelayH */
   MStmt() {
     var x, s1, s2, savedStmt;
     switch (this.look.tag) {
@@ -1433,7 +1541,7 @@ class Parser {
       case "{":
         return this.MBlock();
       case Tag.BASIC:
-        return this.decl();
+        return this.declaration();
       case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
         this.match(';');
@@ -1683,6 +1791,9 @@ function run() {
   ASTNode.labels = 0;
   Temp.count = 0;
   var parse = new Parser(str);
+  ASTNode.lexer = parse.lexer;
+  ASTNode.parser = parse;
   parse.program();
-  console.log(temp1 = Parser.modules);
+  console.log(parse.top)
+  console.log(temp1 = parse.modules);
 }

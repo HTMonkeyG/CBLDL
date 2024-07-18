@@ -1,12 +1,26 @@
 <!DOCTYPE html>
 <meta charset="utf8">
 <textarea id="input" rows="50" cols="50" style="resize: none;width: 400px;display: inline-block;">
-chain pulse {
-  `a${"a"->"b" = 0}b`;
+// Test: multiple decls in 1 stmt
+const a = "aaa"
+    , b = @e;
+const c = @p -> "b";
+// Test: Chinese character id name
+const 实体 = @e;
+const ht = 实体 -> "6";
+
+// Test: chain keyword
+chain {
+  `scoreboard players set ${c} 0`;
+  `kill ${实体}`;
 }
 
+/**
+ * Block comment test
+ * Test: chain pulse modifier 
+ */
 chain pulse {
-  int i; int j;
+  var i, j;
   i = "e".a;
   i = @e -> "a";
   j = @e -> "a" + "e" -> "a";
@@ -19,11 +33,20 @@ chain pulse {
   if (@e[tag=son] > 100) `say k`;
   i = i + 1;
   j = i++ + --i + - - i;
-  int k = (i++) + (i--) * (++i);
-  bool m = `say a`;
+  var k = (i++) + (i--) * (++i);
+  var m = `say a`;
   if (`say a`) `say b`;
 }
 
+// 这是一句中文注释啦啦啦
+// Test: chain repeating modifier
+chain repeating {
+  var entityCtr = @e;
+  if(entityCtr >= 1800) {
+    `kill @e[type=!player]`;
+    `say Entity Cleared!`;
+  }
+}
 </textarea>
 <!--<textarea id="output" rows="50" cols="30" style="resize: none;width: 200px;display: inline-block;"></textarea>-->
 <br>

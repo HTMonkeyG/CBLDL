@@ -67,86 +67,104 @@ Terminal
   %= 
 ```
 # 4 CBLDL类型
-## 4.1 整型（Int）
-&emsp;&emsp;整型有4294967296个可能取值（-2^31 ~ 2^31-1），即32位有符号整数。运算规则与MC游戏内保持一致。 
+&emsp;&emsp;CBLDL的类型分为常量类型和引用类型。  
 
-## 4.2 字符串（String）
-&emsp;&emsp;一个字符串为一有限的由一系列16位有符号整数构成的数组。一般情况下，该数组中每一元素均表述一UTF-16字符。  
-&emsp;&emsp;该数组内元素无法以任何方式从CBLDL层面访问，其仅以一个整体参与程序行为。
+## 4.1 常量类型
+&emsp;&emsp;常量类型又称字面量类型，此种类型的值等于其字面量，且无法在运行时修改。  
 
-## 4.3 选择器（Selector）
+### 4.1.1 字符串（String）
+&emsp;&emsp;一个字符串在编译器层面为一有限的由一系列16位有符号整数构成的数组。一般情况下，该数组中每一元素均表述一UTF-16字符。  
+
+### 4.1.2 选择器（Selector）
 &emsp;&emsp;选择器提供了在CBLDL层面访问实体的方式，其语法与游戏内保持一致。
 
-### 4.3.1 GetCount(S)方法
+#### 4.1.2.1 GetCount(S)方法
 &emsp;&emsp;1. 返回S选中的实体数量。等价于指令  
 ```
 scoreboard players set ${return} 0
-execute at ${S} run scoreboard players add ${return} 1
+execute as ${S} run scoreboard players add ${return} 1
 ```
 
-## 4.4 计分板向量（Vector）
-&emsp;&emsp;计分板向量由一个指代记分项的字符串和一个指代目标的选择器或字符串组成。这是在CBLDL中对计分板的访问方法。  
-&emsp;&emsp;若一个计分项向量作为赋值表达式的左侧参与运算，则其包含的所有实体在对应计分项的分数均会被赋值为表达式的右侧值。一个涉及到多个实体的计分项向量作为多元运算符的分量参与运算是一个**不确定操作**，编译器无需确定该操作结果。  
+### 4.1.3 整型（Int）
+&emsp;&emsp;一个整型为一个-2147483648至2147483647间的整数。
+
+### 4.1.3 浮点型（Float）
+&emsp;&emsp;一个浮点型为一个符合IEEE-754标准的双精度浮点数。
+
+## 4.2 引用类型
+&emsp;&emsp;引用类型类似指针，是CBLDL操作计分项分数的方式。其连接了一个或多个（虚拟）实体及给定计分项，以表示实体在计分项中存储的分数。
+
+### 4.2.1 计分板向量（Vector）
+&emsp;&emsp;计分板向量由一个指代记分项的字符串S和一个指代目标的选择器或字符串T组成。这是在CBLDL中对计分板的访问方法。  
+&emsp;&emsp;若一个计分项向量作为赋值表达式的左侧参与运算，则其包含的所有实体在对应计分项的分数均会被赋值为表达式的右侧值。  
+&emsp;&emsp;本标准中使用以下抽象方法来访问计分项向量的组成成分：
++ GetTarget(V)，返回V的目标T。
++ GetScoreboard(V)，返回V的计分板S。
++ toScbString()，返回```<target-string> <scoreboard-string>```的形式；其中```<target-string>```为T，```<scoreboard-string>```为S。
+
 &emsp;&emsp;在本标准中使用以下抽象方法来描述计分项操作：
 
-### 4.4.1 GetScore(T, S)方法
-&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
-&emsp;&emsp;2. 如果typeof(T)为String，返回虚拟实体T在计分项S上的分数。  
-&emsp;&emsp;3. 报**TypeError**。
+#### 4.2.1.1 GetScore(V)方法
+1. 如果typeof(V)不为Vector，报**TypeError**。
+2. 调用GetTarget(V)。
+3. 调用GetScoreboard(V)。
+4. 如果typeof(Result(2))为String，返回虚拟实体Result(2)在计分项Result(3)上的分数。
+5. 如果typeof(Result(2))为Selector，返回实体Result(2)在计分项Result(3)上的分数。
 
-### 4.4.2 PutScore(T, S, V)方法
-&emsp;&emsp;1. 如果typeof(S)不为String，则报**TypeError**。  
-&emsp;&emsp;2. 如果typeof(V)不为Int，则报**TypeError**。  
-&emsp;&emsp;3. 如果typeof(T)不为String或Selector，则报**TypeError**。  
-&emsp;&emsp;4. 将所有T中包含的(虚拟)实体在S中的分数设为GetValue(V)。等价于指令：  
+&emsp;&emsp;需要注意的是，上述操作中若Result(2)中包含多个实体，则该操作是一个**不确定操作**，编译器无需确定该操作结果。
+
+#### 4.2.1.2 PutScore(V, W)方法
+1. 如果typeof(V)不为Vector，则报**TypeError**。
+2. 执行GetValue(W)。
+3. 如果Result(2)不为Int，则报**TypeError**。
+5. 将所有T中包含的(虚拟)实体在S中的分数设为Result(2)。
+
+#### 4.2.1.3 ReduceScoreSum(V)方法
+1. 调用GetTarget(V)。
+2. 调用GetScoreboard(V)。  
+3. 求出Result(1)中所有实体在计分项Result(2)上的分数之和。等价于指令：  
 ```
-scoreboard players set ${T} ${S} ${GetValue(V)}
+scoreboard players set ${Result(3)} 1
+scoreboard players operation ${Result(3)} += ${Result(1)} ${Result(2)}
 ```
+4. 返回Result(3)。
 
-### 4.4.2 ReduceScoreSum(T, S)方法
-&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
-&emsp;&emsp;2. 如果typeof(T)为Selector，返回T中所有实体在计分项S上的分数之和。等价于指令：  
+#### 4.2.1.4 ReduceScoreMul(V)方法
+1. 调用GetTarget(V)。
+2. 调用GetScoreboard(V)。  
+3. 求出Result(1)中所有实体在计分项Result(2)上的分数之积。等价于指令：  
 ```
-scoreboard players set ${return} 0
-scoreboard players operation ${return} += ${T} ${S}
+scoreboard players set ${Result(3)} 1
+scoreboard players operation ${Result(3)} *= ${Result(1)} ${Result(2)}
 ```
-&emsp;&emsp;3. 报**TypeError**。
+4. 返回Result(3)。
 
-### 4.4.2 ReduceScoreMul(T, S)方法
-&emsp;&emsp;1. 如果typeof(S)不为String，报**TypeError**。  
-&emsp;&emsp;2. 如果typeof(T)为Selector，返回T中所有实体在计分项S上的分数之积。等价于指令：  
-```
-scoreboard players set ${return} 0
-scoreboard players operation ${return} *= ${T} ${S}
-```
-&emsp;&emsp;3. 报**TypeError**。
+### 4.2.2 变量引用
+&emsp;&emsp;**变量引用不是一个实际的数据类型。** 该类型使用计分项向量实现，其仅在本标准中作为辅助说明变量的实现而定义。CBLDL实现须以标准中描述的方式操作变量引用。但同时，变量引用仅可用于表达式求值过程的中转，不可存储为变量的实际值。  
+&emsp;&emsp;变量引用是一种特殊的记分项向量，其对应的计分板指向全局默认计分板($DefaultScb)，用于描述变量的取值、赋值运算等运算类型，比如一个赋值运算的左值应生成一个变量引用。  
+&emsp;&emsp;变量引用的目标为一个用于描述该变量存储位置(复用的虚拟实体的名字，也叫寄存器)的字符串。
 
-## 4.5 引用类型
-&emsp;&emsp;**引用类型不是一个实际的数据类型。** 该类型仅在本标准中作为辅助说明的方式定义。CBLDL实现须以标准中描述的方式操作引用。但同时，引用类型仅可用于表达式求值过程的中转，不可存储为变量的值。  
-&emsp;&emsp;引用类型是一种特殊的记分项向量，其对应的计分板指向全局默认计分板($DefaultScb)，用于描述变量的取值、赋值运算等运算类型，比如一个赋值运算的左值应生成一个引用。  
-&emsp;&emsp;引用包含一个用于描述该变量存储位置(复用的虚拟实体的名字，也叫寄存器)的分量R。  
-&emsp;&emsp;本标准中使用以下抽象方法来访问引用的组成成分：
-+ GetRegStr(V)，返回V对应的R。
-+ toScbString()，返回```<target-string> <scoreboard-string>```的形式；其中```<target-string>```为R，```<scoreboard-string>```为$DefaultScb。
+&emsp;&emsp;在本标准中使用以下抽象方法来操作变量引用：
 
-&emsp;&emsp;在本标准中使用以下抽象方法来操作引用：
+#### 4.2.2.1 GetValue(V)方法
+1. 如果V不是一个变量引用，则跳转到步骤4。
+2. 调用GetScore(V)。
+3. 返回Result(2)。
+4. 如果typeof(V)不为Vector，则直接返回V。
+5. 调用GetScore(V)。
+6. 返回Result(5)。
 
-### 4.5.1 GetValue(V)方法
-&emsp;&emsp;1. 如果V不是一个引用，则直接返回V。  
-&emsp;&emsp;2. 调用GetRegStr(V)。  
-&emsp;&emsp;3. 如果Result(2)为空字符串，报**ReferenceError**。  
-&emsp;&emsp;4. 调用GetScore(Result(2), $DefaultScb)。  
-&emsp;&emsp;5. 返回Result(3)。  
-
-### 4.5.1 PutValue(V, W)方法
-&emsp;&emsp;1. 如果V不是一个引用，报**ReferenceError**。  
-&emsp;&emsp;2. 调用GetRegStr(V)。  
-&emsp;&emsp;3. 如果Result(2)为空字符串，报**ReferenceError**。  
-&emsp;&emsp;4. 调用PutScore(Result(2), $DefaultScb, W)。  
-&emsp;&emsp;5. 返回。  
+#### 4.2.2.2 PutValue(V, W)方法
+1. 调用GetValue(W)。
+2. 如果V不是一个变量引用，则跳转到步骤5。
+3. 调用PutScore(V, Result(1))。
+4. 返回。
+5. 如果typeof(V)不为Vector，报**ReferenceError**。
+6. 调用PutScore(V, Result(1))。
+7. 返回。
 
 # 5 类型转换
-&emsp;&emsp;CBLDL是强类型语言，同时其允许强制类型转换。下方为编程语言内置的类型转换函数。这些函数无法在语言层面调用，也不是保留字，其效果由编译器实现。
+&emsp;&emsp;CBLDL是强类型语言，同时其仅允许自动的强制类型转换。下方为编程语言内置的类型转换函数。这些函数无法在语言层面调用，也不是保留字，其效果由编译器实现。
 
 ## 5.1 ToInt
 &emsp;&emsp;该方法将其输入根据以下规则转换为Int：
@@ -154,7 +172,7 @@ scoreboard players operation ${return} *= ${T} ${S}
 |-|-|
 |Bool|若其值为true，则转换为1；为false时，转换为0|
 |Int|不作更改|
-|Vector|根据4.4节的方式处理|
+|Vector|根据???节的方式处理|
 |Selector|返回GetCount(输入)|
 
 &emsp;&emsp;其余类型不允许转换。
@@ -186,6 +204,7 @@ scoreboard players operation ${return} *= ${T} ${S}
 <PrimaryExpression> :
   <Identifier>
   <Literal>
+  <VanillaCommand>
   ( <Expression> )
 ```
 
@@ -207,10 +226,10 @@ scoreboard players operation ${return} *= ${T} ${S}
 &emsp;&emsp;```<PrimaryExpression> -> <identifier-string>```  
 其中```<identifier-string>```是一个与```<Identifier>```包含相同字符序列的字符串。  
 &emsp;&emsp;产生式```<GetScoreExpression>: <PrimaryExpression> -> <PrimaryExpression>```求值过程如下：  
-&emsp;&emsp;1. 求值取分算符左侧的```<PrimaryExpression>```。  
-&emsp;&emsp;2. 求值取分算符右侧的```<PrimaryExpression>```。  
-&emsp;&emsp;3. 如果Result(2)不为字符串或选择器，Result(1)不为字符串，报**TypeError**。  
-&emsp;&emsp;4. 返回一个目标为Result(1)、记分项为Result(2)的Vector。
+1. 求值取分算符左侧的```<PrimaryExpression>```。  
+2. 求值取分算符右侧的```<PrimaryExpression>```。  
+3. 如果Result(2)不为字符串或选择器，Result(1)不为字符串，报**TypeError**。  
+4. 返回一个目标为Result(1)、记分项为Result(2)的Vector。
 
 ## 6.3 后缀算符
 ```
@@ -219,6 +238,24 @@ scoreboard players operation ${return} *= ${T} ${S}
   <LeftHandSideExpression> ++
   <LeftHandSideExpression> --
 ```
+### 6.3.1 后缀递增算符
+&emsp;&emsp;产生式```<LeftHandSideExpression> ++```求值过程如下：
+1. 求值```<LeftHandSideExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToInt(Result(2))。
+4. 使用等价于指令```scoreboard players add ${Result(3)} 1```的方式为Result(3)加1。
+5. 调用PutValue(Result(1), Result(4))。
+6. 返回Result(1)。
+
+### 6.3.2 后缀递减算符
+&emsp;&emsp;产生式```<LeftHandSideExpression> --```求值过程如下：
+1. 求值```<LeftHandSideExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToInt(Result(2))。
+4. 使用等价于指令```scoreboard players add ${Result(3)} -1```的方式为Result(3)减1。
+5. 调用PutValue(Result(1), Result(4))。
+6. 返回Result(1)。
+
 ## 6.4 单目算符
 ```
 <UnaryExpression> :
@@ -229,6 +266,38 @@ scoreboard players operation ${return} *= ${T} ${S}
   - <UnaryExpression>
   ! <UnaryExpression>
 ```
+
+### 6.4.1 前缀递增算符
+&emsp;&emsp;与后缀递增算符(6.3.1节)完全相同。
+
+### 6.4.2 前缀递减算符
+&emsp;&emsp;与后缀递减算符(6.3.2节)完全相同。
+
+### 6.4.3 前缀+算符
+&emsp;&emsp;前缀+算符将其操作对象转换为Int类型。
+&emsp;&emsp;产生式```+ <UnaryExpression>```求值过程如下：
+1. 求值```<UnaryExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToInt(Result(2))。
+4. 返回Result(3)。
+
+### 6.4.4 前缀-算符
+&emsp;&emsp;前缀-算符将其操作对象转换为Int类型并且取相反数。
+&emsp;&emsp;产生式```- <UnaryExpression>```求值过程如下：
+1. 求值```<UnaryExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToInt(Result(2))。
+4. 使用等价于语句```Result(3) *= -1```的方式对Result(3)取相反数。
+5. 返回Result(4)。
+
+### 6.4.5 逻辑取反算符
+&emsp;&emsp;产生式```! <UnaryExpression>```求值过程如下：
+1. 求值```<UnaryExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToBoolean(Result(2))。
+4. 如果Result(3)为true，返回 false。
+5. 返回true。
+
 ## 6.5 乘除运算
 ```
 <MultiplicativeExpression> :
@@ -237,6 +306,20 @@ scoreboard players operation ${return} *= ${T} ${S}
   <MultiplicativeExpression> / <UnaryExpression>
   <MultiplicativeExpression> % <UnaryExpression>
 ```
+&emsp;&emsp;产生式```<MultiplicativeExpression> : <MultiplicativeExpression> @ <UnaryExpression>```，其中@为上述表述中任一算符，求值过程如下：
+1. 求值```<MultiplicativeExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<UnaryExpression>```。
+4. 调用GetValue(Result(3))。
+5. 调用ToInt(Result(2))。
+6. 调用ToInt(Result(4))。
+7. 使用乘除运算符(*，/，或者 %)对Result(5)和Result(6)进行运算。等效于指令：
+```
+scoreboard players operation ${Result(7)} = ${Result(5)}
+scoreboard players operation ${Result(7)} @= ${Result(5)}
+```
+8. 返回Result(7)。
+
 ## 6.6 加减运算
 ```
 <AdditiveExpression> :
@@ -244,6 +327,21 @@ scoreboard players operation ${return} *= ${T} ${S}
   <AdditiveExpression> + <MultiplicativeExpression>
   <AdditiveExpression> - <MultiplicativeExpression>
 ```
+
+&emsp;&emsp;产生式```<AdditiveExpression> : <AdditiveExpression> @ <MultiplicativeExpression>```，其中@为上述表述中任一算符，求值过程如下：
+1. 求值```<AdditiveExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<MultiplicativeExpression>```。
+4. 调用GetValue(Result(3))。
+5. 调用ToInt(Result(2))。
+6. 调用ToInt(Result(4))。
+7. 使用加减运算符(+ 或者 -)对Result(5)和Result(6)进行运算。等效于指令：
+```
+scoreboard players operation ${Result(7)} = ${Result(5)}
+scoreboard players operation ${Result(7)} @= ${Result(5)}
+```
+8. 返回Result(7)。
+
 ## 6.7 比较运算
 ```
 <RelationalExpression> :
@@ -253,6 +351,57 @@ scoreboard players operation ${return} *= ${T} ${S}
   <RelationalExpression> <= <AdditiveExpression>
   <RelationalExpression> >= <AdditiveExpression>
 ```
+
+### 6.7.1 小于 ( < )
+&emsp;&emsp;产生式```<RelationalExpression> : <RelationalExpression> < <AdditiveExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行比较逻辑Result(2) < Result(4)。(见 6.7.5)
+6. 返回Result(5)。
+
+### 6.7.2 大于 ( > )
+&emsp;&emsp;产生式```<RelationalExpression> : <RelationalExpression> > <AdditiveExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行比较逻辑Result(4) < Result(2)。(见 6.7.5)
+6. 返回Result(5)。
+
+### 6.7.3 小于等于 ( <= )
+&emsp;&emsp;产生式```<RelationalExpression> : <RelationalExpression> <= <AdditiveExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行比较逻辑Result(4) < Result(2)。(见 6.7.5)
+6. 若Result(5)为true，则返回false；反之返回true。
+
+### 6.7.4 大于等于 ( >= )
+&emsp;&emsp;产生式```<RelationalExpression> : <RelationalExpression> >= <AdditiveExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行比较逻辑Result(2) < Result(4)。(见 6.7.5)
+6. 若Result(5)为true，则返回false；反之返回true。
+
+### 6.7.5 比较逻辑
+&emsp;&emsp;一个类似于```x < y```的比较返回true或false。其求值过程如下：
+1. 调用ToInt(x)。
+2. 调用ToInt(y)。
+3. 执行```Result(1) - Result(2)```。等价于指令：
+```
+scoreboard players operation ${Result(3)} = ${Result(1)}
+scoreboard players operation ${Result(3)} -= ${Result(2)}
+```
+4. 如果Result(3)小于0，则返回true。
+5. 否则返回false。  
+
+&emsp;&emsp;需要注意的是，第3步中的减法使用的运算法则为32位有符号整数减法，无法保证是否溢出；而在溢出情况下结果可能不正确。
+
 ## 6.8 相等判定
 ```
 <EqualityExpression> :
@@ -260,6 +409,37 @@ scoreboard players operation ${return} *= ${T} ${S}
   <EqualityExpression> == <RelationalExpression>
   <EqualityExpression> != <RelationalExpression>
 ```
+
+### 6.8.1 等于 ( == )
+&emsp;&emsp;产生式```<EqualityExpression> : <EqualityExpression> == <RelationalExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行相等判断逻辑Result(2) == Result(4)。(见 6.8.3)
+6. 返回Result(5)。
+
+### 6.8.2 不等于 ( != )
+&emsp;&emsp;产生式```<EqualityExpression> : <EqualityExpression> != <RelationalExpression>```求值过程如下：
+1. 求值```<RelationalExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AdditiveExpression>```。
+4. 调用GetValue(Result(3))。
+5. 执行相等判断逻辑Result(2) == Result(4)。(见 6.8.3)
+6. 若Result(5)为true，则返回false；反之返回true。
+
+### 6.8.3 相等判断逻辑
+&emsp;&emsp;一个类似于```x == y```的比较返回true或false。其求值过程如下：
+1. 调用ToInt(x)。
+2. 调用ToInt(y)。
+3. 执行```Result(1) - Result(2)```。等价于指令：
+```
+scoreboard players operation ${Result(3)} = ${Result(1)}
+scoreboard players operation ${Result(3)} -= ${Result(2)}
+```
+4. 如果Result(3)等于0，则返回true。
+5. 否则返回false。
+
 ## 6.9 逻辑运算
 ```
 <LogicalANDExpression> :
@@ -270,6 +450,24 @@ scoreboard players operation ${return} *= ${T} ${S}
   <LogicalANDExpression>
   <LogicalORExpression> || <LogicalANDExpression>
 ```
+&emsp;&emsp;产生式```<LogicalANDExpression> : <LogicalANDExpression> && <EqualityExpression>```求值过程如下：
+1. 求值```<LogicalANDExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToBoolean(Result(2))。
+4. 如果Result(3)为false，返回Result(2)。
+5. 求值```<EqualityExpression>```。
+6. 调用GetValue(Result(5))。
+7. 返回Result(6)。
+
+&emsp;&emsp;产生式```<LogicalORExpression> : <LogicalORExpression> && <LogicalANDExpression>```求值过程如下：
+1. 求值```<LogicalORExpression>```。
+2. 调用GetValue(Result(1))。
+3. 调用ToBoolean(Result(2))。
+4. 如果Result(3)为true，返回Result(2)。
+5. 求值```<LogicalANDExpression>```。
+6. 调用GetValue(Result(5))。
+7. 返回Result(6)。
+
 ## 6.10 赋值运算
 ```
 <AssignmentExpression> :
@@ -282,6 +480,61 @@ scoreboard players operation ${return} *= ${T} ${S}
 <Expression> :
   <AssignmentExpression>
 ```
+### 6.10.1 简单赋值 ( = )
+&emsp;&emsp;产生式```<AssignmentExpression> : <LeftHandSideExpression> = <AssignmentExpression>```求值过程如下：
+1. 求值```<LeftHandSideExpression>```。
+2. 求值```<AssignmentExpression>```。
+3. 调用GetValue(Result(2))。
+4. 调用PutValue(Result(1), Result(3))。
+5. 返回Result(1)。
+
+### 6.10.2 复合赋值 ( += -= )
+&emsp;&emsp;产生式```<AssignmentExpression> : <LeftHandSideExpression> @= <AssignmentExpression>```，其中@为上述产生式中任一算符，求值过程如下：
+1. 求值```<LeftHandSideExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AssignmentExpression>```。
+4. 如果Result(3)为变量引用则跳转至步骤10。
+5. 调用GetValue(Result(3))。
+6. 调用ReduceScoreSum(Result(5))。
+7. 使用@算符对Result(2)和Result(6)进行运算。等价于指令：
+```
+scoreboard players operation ${Result(7)} = ${Result(2)}
+scoreboard players operation ${Result(7)} @= ${Result(6)}
+```
+8. 调用PutValue(Result(1), Result(7))。
+9. 返回Result(1)。
+10. 调用GetValue(Result(3))。
+11. 使用@算符对Result(2)和Result(10)进行运算。等价于指令：
+```
+scoreboard players operation ${Result(11)} = ${Result(2)}
+scoreboard players operation ${Result(11)} @= ${Result(10)}
+```
+12. 调用PutValue(Result(1), Result(11))。
+13. 返回Result(1)。
+
+### 6.10.2 复合赋值 ( *= /= %= )
+&emsp;&emsp;产生式```<AssignmentExpression> : <LeftHandSideExpression> @= <AssignmentExpression>```，其中@为上述产生式中任一算符，求值过程如下：
+1. 求值```<LeftHandSideExpression>```。
+2. 调用GetValue(Result(1))。
+3. 求值```<AssignmentExpression>```。
+4. 如果Result(3)为变量引用则跳转至步骤10。
+5. 调用GetValue(Result(3))。
+6. 调用ReduceScoreMul(Result(5))。
+7. 使用@算符对Result(2)和Result(6)进行运算。等价于指令：
+```
+scoreboard players operation ${Result(7)} = ${Result(2)}
+scoreboard players operation ${Result(7)} @= ${Result(6)}
+```
+8. 调用PutValue(Result(1), Result(7))。
+9. 返回Result(1)。
+10. 调用GetValue(Result(3))。
+11. 使用@算符对Result(2)和Result(10)进行运算。等价于指令：
+```
+scoreboard players operation ${Result(11)} = ${Result(2)}
+scoreboard players operation ${Result(11)} @= ${Result(10)}
+```
+12. 调用PutValue(Result(1), Result(11))。
+13. 返回Result(1)。
 
 # 7 语句
 ```
@@ -294,6 +547,7 @@ scoreboard players operation ${return} *= ${T} ${S}
   <IterationStatement>
   <BreakStatement>
   <DelayHardStatement>
+  <DeleteStatement>
   <ExecuteStatement>
 
 <StatementNoDelayHard> :
@@ -304,9 +558,10 @@ scoreboard players operation ${return} *= ${T} ${S}
   <IfStatement>
   <IterationStatement>
   <BreakStatement>
+  <DeleteStatement>
   <ExecuteStatement>
 ```
-&emsp;&emsp;语句是CBLDL程序的最基础运行成分。
+&emsp;&emsp;语句是CBLDL程序的最基础成分。
 
 ## 7.1 块（Block）
 ```
@@ -328,9 +583,13 @@ scoreboard players operation ${return} *= ${T} ${S}
 ## 7.2 变量定义语句（VariableStatement）
 ```
 <VariableStatement> :
-  var <VariableDeclarationList> ;
+  <VariableTypes> <VariableDeclarationList> ;
+
+<VariableTypes> : one-of
+  var const
 
 <VariableDeclarationList> :
+  <VariableDeclarationList> , <VariableDeclaration>
   <VariableDeclaration>
 
 <VariableDeclaration> :
@@ -378,7 +637,13 @@ scoreboard players operation ${return} *= ${T} ${S}
   delayh <NumericLiteral> ;
 ```
 
-## 7.9 Execute实体层语句（ExecuteStatement）
+## 7.9 重置计分项语句（DeleteStatement）
+```
+<DelayHardStatement> :
+  delayh <NumericLiteral> ;
+```
+
+## 7.10 Execute实体层语句（ExecuteStatement）
 ```
 <VanillaExecute> :
   at <PrimaryExpression>
