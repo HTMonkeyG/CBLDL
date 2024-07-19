@@ -12,7 +12,9 @@ const ht = 实体 -> "6";
 // Test: chain keyword
 chain {
   `scoreboard players set ${c} 0`;
-  `kill ${实体}`;
+  @p => execute(as 实体 at @s) {
+    initial => `kill ${实体}`;
+  };
 }
 
 /**
@@ -52,22 +54,3 @@ chain repeating {
 <br>
 <button onclick="run()">compile</button>
 <script src="main.js"></script>
-int i; int j; i = j = 0; i = i + 1;
-<p>
-int i = 0;<br>
-int k = 0;<br>
-int j = 0;<br>
-int h;<br>
-i += i + 1 * i;<br>
-h = i * j + j / k - k % j;<br>
-"a" -> "b" += 1;<br>
-</p>
-<p>
-chain pulse {<br>
-  int entityCtr = @e;<br>
-  if(entityCtr >= 1800) {<br>
-    `kill @e[type=!player]`;<br>
-    `say Entity Cleared!`<br>
-  }<br>
-}<br>
-</p>

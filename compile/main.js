@@ -1,6 +1,7 @@
 /**
  * HLCL Compiler
- * For CBLDL Specification v1.0
+ * For CBLDL Specification v1.2
+ * MCBE v1.20
  * By HTMonkeyG
  * Bilibili & GitHub: HTMonkeyG
  * 
@@ -45,6 +46,7 @@ const Tag = {
   VANICMDBODY: 288,
   VANICMDTAIL: 289,
   INITIAL: 290,
+  EXECUTESUB: 291,
   LF: 0xFFFE,
   EOF: 0xFFFF
 };
@@ -121,6 +123,63 @@ class SelectorLiteral extends Token {
   toString() { return this.value }
 }
 
+/** Abstract representation of execution context */
+class EntityLayer {
+  static Type = {
+    AS: 0,
+    AT: 1,
+    ALIGN: 2,
+    ANCHORED: 3,
+    FACING: 4,
+    FACINGENT: 5,
+    IN: 6,
+    ROTATED: 7,
+    POSITIONED: 8,
+    POSITIONEDAS: 9,
+    IF: 10,
+    UNLESS: 11
+  };
+  static Initial = new EntityLayer(void 0, void 0, void 0);
+  /**
+   * @param {EntityLayer|undefined} prev - Previous entity layer
+   * @param {String} type - Current layer's type
+   * @param {*} param - Current layer's param
+   */
+  constructor(prev, type, param) { this.prev = prev; this.type = type; this.param = param }
+  withRoot(l) {
+    for (var c = this; c.prev; c = c.prev)
+      if (l == c) throw new Error("Try to generate loop in entity layer")
+    return c.prev = l;
+  }
+  toString() {
+    if (!this.prev) return "";
+    return this.prev.toString() + " " + EntityLayer.Type[this.type] + " " + this.param;
+  }
+}
+
+// execute ... 
+class PayloadLayer extends EntityLayer {
+  constructor() {
+    super()
+  }
+}
+
+// execute ... if|unless score <RelationalExpression> ...
+// execute ... if|unless block <String:pos> <String:block> ...
+// execute ... if|unless blocks <String:pos> <String:pos> <String:pos> <String:mode>
+// execute ... if|unless entity <Selector>
+class ConditionLayer extends EntityLayer {
+  static Conditions = {
+    SCORE: 1,
+    BLOCK: 2,
+    BLOCKS: 3,
+    ENTITY: 4
+  }
+  constructor(prev, isUnless, condition) {
+    super(prev, isUnless ? EntityLayer.Type.UNLESS : EntityLayer.Type.IF, condition);
+  }
+}
+
 class Word extends Token {
   constructor(s, t) { super(t); this.lexeme = s }
   toString() { return this.lexeme }
@@ -147,7 +206,7 @@ class Type extends Word {
   static Float = new Type("float", Tag.BASIC, true);
   static Bool = new Type("bool", Tag.BASIC, false);
   static String = new Type("string", Tag.BASIC, true);
-  static Vector = new Type("vec", Tag.BASIC, true);
+  static Vector = new Type("vector", Tag.BASIC, true);
   static Selector = new Type("sel", Tag.BASIC, true);
 
   static Const = new Type("const", Tag.BASIC, true);
@@ -188,6 +247,20 @@ class Type extends Word {
       return new Rel(Word.ne, x, Constant.from(0))
     else return x;
   }
+}
+
+class ExecuteSubCommand extends Word {
+  constructor(s, tag, type) { super(s, tag); this.type = type }
+  static As = new ExecuteSubCommand("as", Tag.ID, EntityLayer.Type.AS);
+  static At = new ExecuteSubCommand("at", Tag.ID, EntityLayer.Type.AT);
+  static Align = new ExecuteSubCommand("align", Tag.ID, EntityLayer.Type.ALIGN);
+  static Anchored = new ExecuteSubCommand("anchored", Tag.ID, EntityLayer.Type.ANCHORED);
+  static Facing = new ExecuteSubCommand("facing", Tag.ID, EntityLayer.Type.FACING);
+  static In = new ExecuteSubCommand("in", Tag.ID, EntityLayer.Type.IN);
+  static Rotated = new ExecuteSubCommand("rotated", Tag.ID, EntityLayer.Type.ROTATED);
+  static Positioned = new ExecuteSubCommand("postitoned", Tag.ID, EntityLayer.Type.POSITIONED);
+  static If = new ExecuteSubCommand("if", Tag.IF, EntityLayer.Type.IF);
+  static Unless = new ExecuteSubCommand("unless", Tag.ID, EntityLayer.Type.UNLESS);
 }
 
 /**
@@ -408,7 +481,7 @@ function Lexer(s) {
     , readingVaniCmd = !1;
 
   /* Reserved words */
-  reserve(new Word("if", Tag.IF));
+  reserve(ExecuteSubCommand.If);
   reserve(new Word("else", Tag.ELSE));
   reserve(new Word("while", Tag.WHILE));
   reserve(new Word("do", Tag.DO));
@@ -422,20 +495,24 @@ function Lexer(s) {
   reserve(new Word("initial", Tag.INITIAL));
   reserve(Word.False);
   reserve(Word.True);
-  //reserve(Type.Int);
-  //reserve(Type.Bool);
-  //reserve(Type.String);
-  //reserve(Type.Selector);
-  //reserve(Type.Vector);
   reserve(Type.Const);
   reserve(Type.Var);
+  reserve(ExecuteSubCommand.Align);
+  reserve(ExecuteSubCommand.As);
+  reserve(ExecuteSubCommand.At);
+  reserve(ExecuteSubCommand.In);
+  reserve(ExecuteSubCommand.Positioned);
+  reserve(ExecuteSubCommand.Unless);
+  reserve(ExecuteSubCommand.Anchored);
+  reserve(ExecuteSubCommand.Facing);
+  reserve(ExecuteSubCommand.Rotated);
 
   this.scan = scan;
   this.getLine = function () { return line };
 }
 
 /**
- * 
+ * Symbol table implement
  */
 class Env {
   constructor(n) {
@@ -555,9 +632,10 @@ class TACAssign extends TACInst {
   }
 }
 
+
 /** Abstract Syntax Tree Node */
 class ASTNode {
-  constructor() { this.lexline = ASTNode.lexer && ASTNode.lexer.getLine(); this.labels = 0; }
+  constructor() { this.lexline = ASTNode.lexer && ASTNode.lexer.getLine(); this.labels = 0; this.entityLayer = void 0 }
   static labels = 0;
   /** Throw an error */
   error(s) { throw new Error("Near line " + this.lexline + ": " + s) }
@@ -623,8 +701,9 @@ class Stmt extends ASTNode {
    * Gen as a stmt.
    * @param {TACLabel} b - Label of this statement
    * @param {TACLabel} a - Label of next statement
+   * @param {EntityLayer} l - Entity layer of this statement
    */
-  gen(b, a) {/* Empty placeholder for child class */ }
+  gen(b, a, l) {/* Empty placeholder for child class */ }
 }
 
 /** If statement. @extends Stmt */
@@ -761,20 +840,46 @@ class Break extends Stmt {
 }
 
 /** Delay hard statement. @extends Stmt */
-class DelayH extends Stmt { constructor(tok) { super(); this.delay = tok } gen(b, a) { this.emitdelayh(this.delay) } }
+class DelayH extends Stmt {
+  constructor(tok) { super(); this.delay = tok }
+  gen(b, a) { this.emitdelayh(this.delay) }
+}
 
 /** 
  * Execute statement. 
  *
- * Change the executor of commands
+ * Changes the executor of commands
+ * 
  * @extends Stmt 
  */
-class Execute extends Stmt {
-  constructor(x, s) {
+class ExecuteStmt extends Stmt {
+  /** 
+   * Arrow execute statement. 
+   *
+   * A syntatic sugar of `execute as ${...} at #s run ...`
+   * 
+   * @param {Expr} tok - Target
+   * @param {EntityLayer} top - Top entity layer
+   */
+  static createArrowExecuteEL(tok, top) {
+    return new EntityLayer(
+      new EntityLayer(top, EntityLayer.Type.AS, tok)
+      , EntityLayer.Type.AT
+      , new Selector(new SelectorLiteral("@s"))
+    )
+  }
+  /**
+   * @param {EntityLayer} l - Entity layer stack
+   * @param {Stmt} s - Statement
+   */
+  constructor(l, s) {
     super();
-    if (x.type != Type.Selector) this.error("Type error: Scoreboard must be a string, recieved: " + x.type.lexeme);
     this.stmt = s;
-    this.expr = x;
+    this.entityLayer = l;
+  }
+  gen(b, a, l) {
+    console.log("execute as ", this.entityLayer)
+    this.stmt.gen(b, a, this.entityLayer);
   }
 }
 
@@ -1322,8 +1427,9 @@ class Parser {
   constructor(str) {
     this.lexer = new Lexer(str);
     this.look = void 0; // Lexer unit
-    this.used = 0; // 用于声明变量的存储位置
-    this.top = new Env(void 0); // 当前或顶层符号表
+    this.used = 0; // Uid of variable
+    this.top = new Env(void 0); // Current symbol table
+    this.topEL = EntityLayer.Initial;
     this.done = !1;
     this.result = "";
     this.resultObj = void 0;
@@ -1341,7 +1447,7 @@ class Parser {
   program() {
     if (this.done) return;
     while (this.look.tag == Tag.BASIC) {
-      this.declaration(true);
+      this.VariableStatement(true);
     }
     while (this.look.tag != Tag.EOF) {
       var s = this.toplevel()
@@ -1409,14 +1515,11 @@ class Parser {
   }
 
   /**
-   * Declaration statement
-   * 
-   * D -> (type ID [= E])+
-   * 
+   * Variable or constant declaration statement
    * @param {Boolean} onlyConst - Only allow constant, avaliable in top level
    * @returns {Stmt}
    */
-  declaration(onlyConst) {
+  VariableStatement(onlyConst) {
     var p = this.type();
     if (onlyConst && !p.isConst())
       this.error("Only constants can be declared in top level.");
@@ -1479,7 +1582,7 @@ class Parser {
 
   /** Statement */
   CPStmt() {
-    var x, s1, s2;
+    var x, s1, s2, savedEL;
     switch (this.look.tag) {
       case ';':
         this.move();
@@ -1491,14 +1594,37 @@ class Parser {
         this.match(Tag.ELSE);
         s2 = this.CPStmt();
         return new Else(x, s1, s2);
+      case Tag.EXECUTE:
+        this.match(Tag.EXECUTE); this.match('(');
+        savedEL = this.topEL;
+        this.topEL = this.executeSubcommands();
+        this.match(')');
+        s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+        this.topEL = savedEL;
+        return s1
       case "{":
         return this.Block(Mode.CP);
       case Tag.BASIC:
-        return this.declaration();
+        return this.VariableStatement();
       case Tag.VANICMD: case Tag.ID: case Tag.VANICMDHEAD: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
-        this.match(';');
+        if (this.look.tag == Tag.AE) {
+          this.match(Tag.AE);
+          savedEL = this.topEL;
+          this.topEL = ExecuteStmt.createArrowExecuteEL(x, this.topEL);
+          s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+          this.topEL = savedEL;
+          return s1;
+        } else
+          this.match(';');
         return x;
+      case Tag.INITIAL:
+        this.move(); this.match(Tag.AE);
+        savedEL = this.topEL;
+        this.topEL = EntityLayer.Initial;
+        s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+        this.topEL = savedEL;
+        return s1;
       default:
         this.errorUnexp()
     }
@@ -1541,7 +1667,7 @@ class Parser {
       case "{":
         return this.MBlock();
       case Tag.BASIC:
-        return this.declaration();
+        return this.VariableStatement();
       case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
         x = this.assign();
         this.match(';');
@@ -1618,6 +1744,11 @@ class Parser {
     } else return x
   }
 
+  /**
+   * Primary expression
+   * @param {Boolean} c - Read id as literal if true
+   * @returns {Expr}
+   */
   primary(c) {
     var x = void 0;
     switch (this.look.tag) {
@@ -1640,7 +1771,7 @@ class Parser {
         x = this.look.toString();
         if (c) { this.move(); return this.look; }
         var id = this.top.get(this.look);
-        if (id == void 0 && !c) this.error(x + " is undeclared");
+        if (id == void 0) this.error(x + " is undeclared");
         this.move();
         return id;
       case Tag.VANICMD:
@@ -1674,37 +1805,41 @@ class Parser {
       return new VanillaCmdTag(x, t, void 0);
     this.errorUnexp();
   }
-}
 
-function Generator(W) {
-  var regDesc = [], varDesc = [], scb = "bkstage";
-  function getReg(v) {
-    if (v.tag == Tag.TEMP) { }
-    if (v.tag == Tag.ID) {
-    }
-  }
-  function CP(M) {
-    for (let i = 0; i < M.length; i++) {
-      var BB = M[i];
-      for (let j = 0; j < BB.length; j++) {
-        /* Calculate lastRead and lastWrite */
-        var Inst = BB[j], x1, x2;
-        switch (Inst.type) {
-          case "assign": case "assigncomp":
-            x1 = Inst.id;
-            if (x1.tag == ExprTag.REF) x1.lastWrite = Inst;
-          case "if": case "iffalse":
-            x2 = Inst.expr;
-            if (x2.tag == ExprTag.REF) x2.lastRead = Inst;
-            else if (x2.tag == ExprTag.UNARY && x2.expr.tag == ExprTag.REF) x2.expr.lastRead = Inst;
-            else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
-              if (x2.expr1.tag == ExprTag.REF) x2.expr1.lastRead = Inst;
-              if (x2.expr2.tag == ExprTag.REF) x2.expr2.lastRead = Inst;
-            }
-        }
+  executeSubcommands() {
+    var t1 = this.look, t2 = this.topEL;
+    while (this.look.tag !== ")") {
+      this.match(Tag.ID);
+      switch (t1.type) {
+        case EntityLayer.Type.AS:
+        case EntityLayer.Type.AT:
+        case EntityLayer.Type.ANCHORED:
+        case EntityLayer.Type.ALIGN:
+        case EntityLayer.Type.IN:
+          t2 = this.executeSimplePayload(t2, t1.type);
+          break;
+        default:
+          this.errorUnexp();
       }
+      this.move();
     }
+    return t2
   }
+
+  /** 
+   * Parses subcommand with single param: 
+   * 
+   * Subcomands: as at anchored align in
+   */
+  executeSimplePayload(prev, type) {
+    return new EntityLayer(prev, type, this.look);
+  }
+
+  executeFacing() {
+
+  }
+
+  executeCondition() { }
 }
 
 var varDesc = [], $DefaultScb = "bkstage";
