@@ -593,7 +593,8 @@ scoreboard players operation ${Result(11)} @= ${Result(10)}
   <VariableDeclaration>
 
 <VariableDeclaration> :
-  <Identifier> [<Initialiser>]
+  <Identifier>
+  <Identifier> <Initialiser>
 
 <Initialiser> :
   = <AssignmentExpression>
