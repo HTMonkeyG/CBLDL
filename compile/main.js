@@ -12,7 +12,7 @@
 
 "use strict";
 
-const Tag = {
+const TokenTag = {
   AND: 256,
   BASIC: 257,
   BREAK: 258,
@@ -90,7 +90,7 @@ class Token {
   constructor(t) { this.tag = t; this.uid = Token.uid++ }
   toString() { return this.tag }
   static uid = 0;
-  static EOF = new Token(Tag.EOF)
+  static EOF = new Token(TokenTag.EOF)
 }
 
 /** A numeric token */
@@ -98,7 +98,7 @@ class NumericLiteral extends Token {
   /**
    * @param {Number} v - Numeric value
    */
-  constructor(v) { super(Tag.NUM); this.value = v }
+  constructor(v) { super(TokenTag.NUM); this.value = v }
   getValue() { return this.value }
   toString() { return this.value.toString() }
   isInteger() { return Math.isInteger(this.value) }
@@ -109,7 +109,7 @@ class StringLiteral extends Token {
   /**
    * @param {String} v - String value
    */
-  constructor(v) { super(Tag.STRING); this.value = v }
+  constructor(v) { super(TokenTag.STRING); this.value = v }
   toString() { return '"' + this.value + '"' }
 }
 
@@ -119,7 +119,7 @@ class VaniCmdLiteral extends Token {
    * @param {String} v - String value of this segment
    * @param {*} t - Tag
    */
-  constructor(v, t) { super(t ? t : Tag.VANICMD); this.cmd = v }
+  constructor(v, t) { super(t ? t : TokenTag.VANICMD); this.cmd = v }
   toString() { return this.cmd }
 }
 
@@ -128,7 +128,7 @@ class SelectorLiteral extends Token {
   /**
    * @param {String} v - String value of selector
    */
-  constructor(v) { super(Tag.SELECTOR); this.value = v }
+  constructor(v) { super(TokenTag.SELECTOR); this.value = v }
   toString() { return this.value }
 }
 
@@ -192,18 +192,18 @@ class ConditionLayer extends EntityLayer {
 class Word extends Token {
   constructor(s, t) { super(t); this.lexeme = s }
   toString() { return this.lexeme }
-  static and = new Word("&&", Tag.AND);
-  static or = new Word("||", Tag.OR);
-  static eq = new Word("==", Tag.EQ);
-  static ne = new Word("!=", Tag.NE);
-  static le = new Word("<=", Tag.LE);
-  static ge = new Word(">=", Tag.GE);
-  static gs = new Word("->", Tag.GS);
-  static ae = new Word("=>", Tag.AE);
-  static minus = new Word("minus", Tag.MINUS);
-  static True = new Word("true", Tag.TRUE);
-  static False = new Word("false", Tag.FALSE);
-  static temp = new Word("t", Tag.TEMP);
+  static and = new Word("&&", TokenTag.AND);
+  static or = new Word("||", TokenTag.OR);
+  static eq = new Word("==", TokenTag.EQ);
+  static ne = new Word("!=", TokenTag.NE);
+  static le = new Word("<=", TokenTag.LE);
+  static ge = new Word(">=", TokenTag.GE);
+  static gs = new Word("->", TokenTag.GS);
+  static ae = new Word("=>", TokenTag.AE);
+  static minus = new Word("minus", TokenTag.MINUS);
+  static True = new Word("true", TokenTag.TRUE);
+  static False = new Word("false", TokenTag.FALSE);
+  static temp = new Word("t", TokenTag.TEMP);
 }
 
 /**
@@ -273,15 +273,15 @@ class Type extends Word {
 
   isConst() { return this.const }
 
-  static Int = new Type("int", Tag.BASIC, false);
-  static Float = new Type("float", Tag.BASIC, true);
-  static Bool = new Type("bool", Tag.BASIC, false);
-  static String = new Type("string", Tag.BASIC, true);
-  static Vector = new Type("vector", Tag.BASIC, true);
-  static Selector = new Type("sel", Tag.BASIC, true);
+  static Int = new Type("int", TokenTag.BASIC, false);
+  static Float = new Type("float", TokenTag.BASIC, true);
+  static Bool = new Type("bool", TokenTag.BASIC, false);
+  static String = new Type("string", TokenTag.BASIC, true);
+  static Vector = new Type("vector", TokenTag.BASIC, true);
+  static Selector = new Type("sel", TokenTag.BASIC, true);
 
-  static Const = new Type("const", Tag.BASIC, true);
-  static Var = new Type("var", Tag.BASIC, false);
+  static Const = new Type("const", TokenTag.BASIC, true);
+  static Var = new Type("var", TokenTag.BASIC, false);
 
   static numeric(p) {
     if (p == Type.Int || p == Type.Vector) return !0;
@@ -322,16 +322,16 @@ class Type extends Word {
 
 class ExecuteSubcommand extends Word {
   constructor(s, tag, type) { super(s, tag); this.type = type }
-  static As = new ExecuteSubcommand("as", Tag.ID, EntityLayer.Type.AS);
-  static At = new ExecuteSubcommand("at", Tag.ID, EntityLayer.Type.AT);
-  static Align = new ExecuteSubcommand("align", Tag.ID, EntityLayer.Type.ALIGN);
-  static Anchored = new ExecuteSubcommand("anchored", Tag.ID, EntityLayer.Type.ANCHORED);
-  static Facing = new ExecuteSubcommand("facing", Tag.ID, EntityLayer.Type.FACING);
-  static In = new ExecuteSubcommand("in", Tag.ID, EntityLayer.Type.IN);
-  static Rotated = new ExecuteSubcommand("rotated", Tag.ID, EntityLayer.Type.ROTATED);
-  static Positioned = new ExecuteSubcommand("postitoned", Tag.ID, EntityLayer.Type.POSITIONED);
-  static If = new ExecuteSubcommand("if", Tag.IF, EntityLayer.Type.IF);
-  static Unless = new ExecuteSubcommand("unless", Tag.ID, EntityLayer.Type.UNLESS);
+  static As = new ExecuteSubcommand("as", TokenTag.ID, EntityLayer.Type.AS);
+  static At = new ExecuteSubcommand("at", TokenTag.ID, EntityLayer.Type.AT);
+  static Align = new ExecuteSubcommand("align", TokenTag.ID, EntityLayer.Type.ALIGN);
+  static Anchored = new ExecuteSubcommand("anchored", TokenTag.ID, EntityLayer.Type.ANCHORED);
+  static Facing = new ExecuteSubcommand("facing", TokenTag.ID, EntityLayer.Type.FACING);
+  static In = new ExecuteSubcommand("in", TokenTag.ID, EntityLayer.Type.IN);
+  static Rotated = new ExecuteSubcommand("rotated", TokenTag.ID, EntityLayer.Type.ROTATED);
+  static Positioned = new ExecuteSubcommand("postitoned", TokenTag.ID, EntityLayer.Type.POSITIONED);
+  static If = new ExecuteSubcommand("if", TokenTag.IF, EntityLayer.Type.IF);
+  static Unless = new ExecuteSubcommand("unless", TokenTag.ID, EntityLayer.Type.UNLESS);
 }
 
 /**
@@ -406,7 +406,7 @@ function Lexer(s) {
       var b = readStringUnquoted();
       var w = words.get(b);
       if (w != void 0) return w;
-      w = new Word(b, Tag.ID);
+      w = new Word(b, TokenTag.ID);
       words.put(b, w);
       return w
     }
@@ -416,14 +416,14 @@ function Lexer(s) {
       if (!readingVaniCmd)
         return new VaniCmdLiteral(t);
       else
-        return new VaniCmdLiteral(t, Tag.VANICMDHEAD);
+        return new VaniCmdLiteral(t, TokenTag.VANICMDHEAD);
     }
     if (peek == "}" && readingVaniCmd) {
       var t = readVaniCmd();
       if (!readingVaniCmd)
-        return new VaniCmdLiteral(t, Tag.VANICMDTAIL);
+        return new VaniCmdLiteral(t, TokenTag.VANICMDTAIL);
       else
-        return new VaniCmdLiteral(t, Tag.VANICMDBODY);
+        return new VaniCmdLiteral(t, TokenTag.VANICMDBODY);
     }
     if (peek == '"') return new StringLiteral(readStringUntil('"'));
     if (peek == '@') return readSelector();
@@ -553,18 +553,18 @@ function Lexer(s) {
 
   /* Reserved words */
   reserve(ExecuteSubcommand.If);
-  reserve(new Word("else", Tag.ELSE));
-  reserve(new Word("while", Tag.WHILE));
-  reserve(new Word("do", Tag.DO));
-  reserve(new Word("break", Tag.BREAK));
-  reserve(new Word("chain", Tag.CHAIN));
-  reserve(new Word("pulse", Tag.PULSE));
-  reserve(new Word("repeating", Tag.REPEATING));
-  reserve(new Word("module", Tag.MODULE));
-  reserve(new Word("execute", Tag.EXECUTE));
-  reserve(new Word("delayh", Tag.DELAYH));
-  reserve(new Word("initial", Tag.INITIAL));
-  reserve(new Word("delete", Tag.DELETE));
+  reserve(new Word("else", TokenTag.ELSE));
+  reserve(new Word("while", TokenTag.WHILE));
+  reserve(new Word("do", TokenTag.DO));
+  reserve(new Word("break", TokenTag.BREAK));
+  reserve(new Word("chain", TokenTag.CHAIN));
+  reserve(new Word("pulse", TokenTag.PULSE));
+  reserve(new Word("repeating", TokenTag.REPEATING));
+  reserve(new Word("module", TokenTag.MODULE));
+  reserve(new Word("execute", TokenTag.EXECUTE));
+  reserve(new Word("delayh", TokenTag.DELAYH));
+  reserve(new Word("initial", TokenTag.INITIAL));
+  reserve(new Word("delete", TokenTag.DELETE));
   reserve(Word.False);
   reserve(Word.True);
   reserve(Type.Const);
@@ -649,12 +649,43 @@ class TAC extends Array {
   }
 
   gen() {
+    this.chain = new CBSubChain();
+
+    for (var BB of this) {
+      for (var Inst of BB) {
+        /* Calculate lastRead and lastWrite */
+        var x1, x2;
+        switch (Inst.type) {
+          case "assign": case "assigncomp":
+            x1 = Inst.id;
+            if (x1.tag == ExprTag.REF)
+              x1.lastWrite = Inst;
+          case TACGoto.Type.IF: case TACGoto.Type.UNLESS:
+            x2 = Inst.expr;
+            if (x2.tag == ExprTag.REF)
+              x2.lastRead = Inst;
+            else if (x2.tag == ExprTag.UNARY && x2.expr.tag == ExprTag.REF)
+              x2.expr.lastRead = Inst;
+            else if (x2.tag == ExprTag.ARITH || x2.tag == ExprTag.REL) {
+              if (x2.expr1.tag == ExprTag.REF)
+                x2.expr1.lastRead = Inst;
+              if (x2.expr2.tag == ExprTag.REF)
+                x2.expr2.lastRead = Inst;
+            }
+            break;
+          case "vanilla":
+            break;
+        }
+      }
+    }
+
     if (this.mode != TAC.Mode.M && !this.totalDelay)
       this.registerPool = RegisterPool.Global;
     else this.registerPool = new RegisterPool();
 
     var state = new Temp(Type.Int);
     this.registerPool.getRegFor(state);
+    this.chain.pushCB(`scoreboard players set ${state} 0`);
 
     if (this.mode != TAC.Mode.M) {
       var delay = 0;
@@ -662,6 +693,15 @@ class TAC extends Array {
         delay = bb.gen(this.registerPool, state, delay || 0);
         this.chain = this.chain.concat(bb.chain);
       }
+    }
+
+    this.registerPool.releaseRegFor(state);
+
+    if (this.mode == TAC.Mode.CP) {
+      this.chain[0].type = CB.Type.PULSE;
+    } else if (this.mode == TAC.Mode.CR) {
+      this.chain[0].type = CB.Type.REPEAT;
+      this.chain[0].delay = this.totalDelay;
     }
   }
 }
@@ -692,6 +732,9 @@ class TACBaseBlock extends Array {
     this.chain = new CBSubChain();
     for (var inst of this) {
       delay_ = inst.gen(regPool, state, this.chain, this.id, delay_ || 0);
+    }
+    for (var cb of this.chain) {
+      cb.cmd = `execute if score ${state} matches ${this.id} run ${cb.cmd}`;
     }
     return delay_
   }
@@ -742,16 +785,13 @@ class TACDelayH extends TACInst {
    */
   constructor(t) {
     super("delayh");
-    if (t.tag == ExprTag.CONST)
-      this.delay = t.getValue();
-    else if (t.tag == ExprTag.REF)
-      this.delay = t.getValue().getValue();
-    console.log(t)
+    this.delay = t;
   }
 
   gen() { return this.delay }
 }
 
+/** Goto TAC instruction. @extends TACInst */
 class TACGoto extends TACInst {
   static Type = {
     GOTO: 0,
@@ -773,8 +813,32 @@ class TACGoto extends TACInst {
   }
 
   gen(regPool, state, chain, id, delay) {
-    console.log(this, this.expr.toString())
-
+    //console.log(this, this.expr.toString())
+    if (options.targetVersion > 10180) {
+      switch (this.type) {
+        case TACGoto.Type.GOTO:
+          chain.pushCB(
+            `scoreboard players set ${state} ${this.label.baseblock.id}`,
+            CB.Type.CHAIN,
+            delay
+          );
+          break;
+        case TACGoto.Type.IF:
+          chain.pushCB(
+            `execute if score ${this.expr.toString()} run scoreboard players set ${state} ${this.label.baseblock.id}`,
+            CB.Type.CHAIN,
+            delay
+          );
+          break;
+        case TACGoto.Type.UNLESS:
+          chain.pushCB(
+            `execute unless score ${this.expr.toString()} run scoreboard players set ${state} ${this.label.baseblock.id}`,
+            CB.Type.CHAIN,
+            delay
+          );
+          break;
+      }
+    }
   }
 }
 
@@ -811,7 +875,7 @@ class TACAssign extends TACInst {
 
     var x1 = this.id, x2 = this.expr;
     if (this.type == "assign") {
-      var x21, x22;
+      var x21, x22, r;
       switch (x2.tag) {
         case ExprTag.CONST:
           assignReg(x1);
@@ -824,10 +888,11 @@ class TACAssign extends TACInst {
           break;
 
         case ExprTag.REF:
+          r = x2.reg;
           if (x2.lastRead == this)
             releaseReg(x2);
           assignReg(x1);
-          x1.reg != x2.reg && chain.pushCB(`scoreboard players operation ${x1} = ${x2}`, CB.Type.CHAIN, delay);
+          x1.reg != r && chain.pushCB(`scoreboard players operation ${x1} = ${r}`, CB.Type.CHAIN, delay);
           break;
 
         case ExprTag.SELECTOR:
@@ -1053,9 +1118,10 @@ class Do extends Stmt {
 
 /** 
  * Statement sequence.
- * @extends Stmt 
+ * 
  * Seq -> Stmt
  *      | Stmt Seq
+ * @extends Stmt 
  */
 class Seq extends Stmt {
   /** 
@@ -1106,13 +1172,10 @@ class DelayH extends Stmt {
     super();
     if (x.type != Type.Int)
       this.error("Type error: Delay must be an integer.");
-    if (x.tag == ExprTag.CONST || (x.tag == ExprTag.REF && x.getConst()))
-      this.delay = x.value;
-    if (x.tag != ExprTag.CONST && x.tag != ExprTag.REF)
-      this.error("Syntax error");
-    if (x.tag == ExprTag.REF && !x.getConst())
+    var v = Expr.getConstValue(x);
+    if (!v)
       this.error("Reference error: Only constants can be used in delayh.");
-    this.delay = x;
+    this.delay = v;
   }
   gen(b, a) { this.emitdelayh(this.delay) }
 }
@@ -1857,10 +1920,10 @@ class Parser {
    */
   Program() {
     if (this.done) return;
-    while (this.look.tag == Tag.BASIC)
+    while (this.look.tag == TokenTag.BASIC)
       this.VariableStatement(true);
 
-    while (this.look.tag != Tag.EOF) {
+    while (this.look.tag != TokenTag.EOF) {
       var s = this.Module()
         , begin = s.newlabel()
         , after = s.newlabel();
@@ -1906,14 +1969,14 @@ class Parser {
    */
   Module() {
     switch (this.look.tag) {
-      case Tag.CHAIN:
+      case TokenTag.CHAIN:
         this.move();
-        if (this.look.tag == Tag.PULSE) {
+        if (this.look.tag == TokenTag.PULSE) {
           // <ChainPulseModule> : chain pulse <Block>
           this.move();
           this.resultObj = new TAC(TAC.Mode.CP);
           return this.Block(TAC.Mode.CP);
-        } else if (this.look.tag == Tag.REPEATING) {
+        } else if (this.look.tag == TokenTag.REPEATING) {
           // <ChainRepeatingModule> : chain repeating <Block>
           this.move();
           this.resultObj = new TAC(TAC.Mode.CR);
@@ -1925,7 +1988,7 @@ class Parser {
         } else
           this.errorUnexp();
 
-      case Tag.MODULE:
+      case TokenTag.MODULE:
         // <CombinedModule> : module <BlockNoDelayHard>
         this.move();
         if (this.look.tag == "{") {
@@ -1962,7 +2025,7 @@ class Parser {
     // <VariableDeclarationList> : <VariableDeclarationList> , <VariableDeclaration>
     // <VariableDeclarationList> : <VariableDeclaration>
     var tok = this.look, id, s, expr;
-    this.match(Tag.ID);
+    this.match(TokenTag.ID);
     id = new Id(tok, void 0, this.used, p.isConst());
     this.top.put(tok, id);
     this.used++;
@@ -2007,7 +2070,7 @@ class Parser {
     // <VariableTypes> : var
     // <VariableTypes> : const
     var p = this.look;
-    this.match(Tag.BASIC);
+    this.match(TokenTag.BASIC);
     return p;
   }
 
@@ -2036,7 +2099,7 @@ class Parser {
   Stmts(m) {
     var f = [this.CPStmt, this.CPStmt, this.MStmt];
     if (this.look.tag == '}') return Stmt.Null;
-    else if (this.look.tag == Tag.EOF) return Stmt.Null;
+    else if (this.look.tag == TokenTag.EOF) return Stmt.Null;
     else return new Seq(f[m].call(this), this.Stmts(m))
   }
 
@@ -2052,18 +2115,18 @@ class Parser {
         this.move();
         return Stmt.Null;
 
-      case Tag.IF:
+      case TokenTag.IF:
         // <IfStatement> : if ( <Expression> ) <Statement>
-        this.match(Tag.IF), this.match("("), x = this.AssignmentExpression(), this.match(")");
+        this.match(TokenTag.IF), this.match("("), x = this.AssignmentExpression(), this.match(")");
         s1 = this.CPStmt();
-        if (this.look.tag != Tag.ELSE) return new If(x, s1);
+        if (this.look.tag != TokenTag.ELSE) return new If(x, s1);
         // <IfStatement> : if ( <Expression> ) <Statement> else <Statement>
-        this.match(Tag.ELSE);
+        this.match(TokenTag.ELSE);
         s2 = this.CPStmt();
         return new Else(x, s1, s2);
 
-      case Tag.EXECUTE:
-        this.match(Tag.EXECUTE); this.match('(');
+      case TokenTag.EXECUTE:
+        this.match(TokenTag.EXECUTE); this.match('(');
         savedEL = this.topEL;
         this.topEL = this.executeSubcommands();
         this.match(')');
@@ -2075,15 +2138,15 @@ class Parser {
         // <Block> : { [<StatementList>] }
         return this.Block(TAC.Mode.CP);
 
-      case Tag.BASIC:
+      case TokenTag.BASIC:
         // <VariableStatement> : <VariableTypes> <VariableDeclarationList> ;
         return this.VariableStatement();
 
-      case Tag.VANICMD: case Tag.ID: case Tag.VANICMDHEAD: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--": case '(':
+      case TokenTag.VANICMD: case TokenTag.ID: case TokenTag.VANICMDHEAD: case TokenTag.NUM: case TokenTag.STRING: case TokenTag.SELECTOR: case "++": case "--": case '(':
         x = this.AssignmentExpression();
         // <ExecuteStatement> : <PrimaryExpression> => <Statement>
-        if (this.look.tag == Tag.AE) {
-          this.match(Tag.AE);
+        if (this.look.tag == TokenTag.AE) {
+          this.match(TokenTag.AE);
           savedEL = this.topEL;
           this.topEL = ExecuteStmt.createArrowExecuteEL(x, this.topEL);
           s1 = new ExecuteStmt(this.topEL, this.CPStmt());
@@ -2094,16 +2157,16 @@ class Parser {
           this.match(';');
         return x;
 
-      case Tag.INITIAL:
+      case TokenTag.INITIAL:
         // <ExecuteStatement> : <PrimaryExpression> => <Statement>
-        this.move(); this.match(Tag.AE);
+        this.move(); this.match(TokenTag.AE);
         savedEL = this.topEL;
         this.topEL = EntityLayer.Initial;
         s1 = new ExecuteStmt(this.topEL, this.CPStmt());
         this.topEL = savedEL;
         return s1;
 
-      case Tag.DELAYH:
+      case TokenTag.DELAYH:
         // <DelayHardStatement> : <PrimaryExpression>
         this.move();
         x = this.PrimaryExpression();
@@ -2122,38 +2185,38 @@ class Parser {
       case ';':
         this.move();
         return Stmt.Null;
-      case Tag.IF:
-        this.match(Tag.IF), this.match("("), x = this.AssignmentExpression(), this.match(")");
+      case TokenTag.IF:
+        this.match(TokenTag.IF), this.match("("), x = this.AssignmentExpression(), this.match(")");
         s1 = this.MStmt();
-        if (this.look.tag != Tag.ELSE) return new If(x, s1);
-        this.match(Tag.ELSE);
+        if (this.look.tag != TokenTag.ELSE) return new If(x, s1);
+        this.match(TokenTag.ELSE);
         s2 = this.MStmt();
         return new Else(x, s1, s2);
-      case Tag.WHILE:
+      case TokenTag.WHILE:
         var whilenode = new While();
         savedStmt = Stmt.Enclosing, Stmt.Enclosing = whilenode;
-        this.match(Tag.WHILE), this.match("("), x = this.AssignmentExpression(), this.match(")");
+        this.match(TokenTag.WHILE), this.match("("), x = this.AssignmentExpression(), this.match(")");
         s1 = this.MStmt();
         whilenode.init(x, s1);
         Stmt.Enclosing = savedStmt;
         return whilenode;
-      case Tag.DO:
+      case TokenTag.DO:
         var donode = new Do();
         savedStmt = Stmt.Enclosing, Stmt.Enclosing = donode;
-        this.match(Tag.DO);
+        this.match(TokenTag.DO);
         s1 = this.MStmt();
-        this.match(Tag.WHILE), this.match("("), x = this.AssignmentExpression(), this.match(")"), this.match(";");
+        this.match(TokenTag.WHILE), this.match("("), x = this.AssignmentExpression(), this.match(")"), this.match(";");
         donode.init(s1, x);
         Stmt.Enclosing = savedStmt;
         return donode;
-      case Tag.BREAK:
-        this.match(Tag.BREAK), this.match(";");
+      case TokenTag.BREAK:
+        this.match(TokenTag.BREAK), this.match(";");
         return new Break();
       case "{":
         return this.MBlock();
-      case Tag.BASIC:
+      case TokenTag.BASIC:
         return this.VariableStatement();
-      case Tag.VANICMD: case Tag.VANICMDHEAD: case Tag.ID: case Tag.NUM: case Tag.STRING: case Tag.SELECTOR: case "++": case "--":
+      case TokenTag.VANICMD: case TokenTag.VANICMDHEAD: case TokenTag.ID: case TokenTag.NUM: case TokenTag.STRING: case TokenTag.SELECTOR: case "++": case "--":
         x = this.AssignmentExpression();
         this.match(';');
         return x;
@@ -2162,11 +2225,15 @@ class Parser {
     }
   }
 
+  /**
+   * Assignment expression
+   * @returns {Expr}
+   */
   AssignmentExpression() {
     // <AssignmentExpression> : 
     //   <LogicalORExpression>
     //   <LeftHandSideExpression> <AssignmentOperator> <AssignmentExpression>
-    var x = this.logicalOr(), tok = this.look;
+    var x = this.LogicalORExpression(), tok = this.look;
     switch (tok.tag) {
       case "=":
         if (x.tag != ExprTag.REF && x.tag != ExprTag.GS)
@@ -2186,16 +2253,54 @@ class Parser {
     }
   }
 
-  logicalOr() { var x = this.logicalAnd(); while (this.look.tag == Tag.OR) { var tok = this.look; this.move(); x = new Or(tok, x, this.logicalAnd()) } return x }
-  logicalAnd() { var x = this.equality(); while (this.look.tag == Tag.AND) { var tok = this.look; this.move(); x = new And(tok, x, this.equality()) } return x }
-  equality() { var x = this.relational(); while (this.look.tag == Tag.EQ || this.look.tag == Tag.NE) { var tok = this.look; this.move(); x = new Rel(tok, x, this.relational()) } return x }
-  relational() {
+  /**
+   * Logical or expression
+   * @returns {Expr}
+   */
+  LogicalORExpression() {
+    var x = this.LogicalANDExpression(), tok;
+    while (this.test([TokenTag.OR]))
+      tok = this.look, this.move(), x = new Or(tok, x, this.LogicalANDExpression());
+    return x
+  }
+
+  /**
+   * Logical and expression
+   * @returns {Expr}
+   */
+  LogicalANDExpression() {
+    var x = this.EqualityExpression(), tok;
+    while (this.test([TokenTag.AND]))
+      tok = this.look, this.move(), x = new And(tok, x, this.EqualityExpression());
+    return x
+  }
+
+  /**
+   * Equality expression
+   * @returns {Expr}
+   */
+  EqualityExpression() {
+    var x = this.RelationalExpression(), tok;
+    while (this.test([TokenTag.EQ, TokenTag.NE]))
+      tok = this.look, this.move(), x = new Rel(tok, x, this.RelationalExpression());
+    return x
+  }
+
+  /**
+   * Relational expression
+   * @returns {Expr}
+   */
+  RelationalExpression() {
     var x = this.AdditiveExpression(), tok;
-    if (this.test(['<', Tag.LE, Tag.GE, '>']))
+    if (this.test(['<', TokenTag.LE, TokenTag.GE, '>']))
       tok = this.look, this.move(), x = new Rel(tok, x, this.AdditiveExpression());
     return x
   }
 
+  /**
+   * Additive expression
+   * @returns {Expr}
+   */
   AdditiveExpression() {
     // <AdditiveExpression> :
     //   <MultiplicativeExpression>
@@ -2243,7 +2348,7 @@ class Parser {
       //   ++ <UnaryExpression>
       //   -- <UnaryExpression>
       this.move();
-      if (this.test([Tag.ID]))
+      if (this.test([TokenTag.ID]))
         return new Prefix(this.UnaryExpression(), tok);
       else
         this.error("Invalid left-hand side expression in prefix operation");
@@ -2263,7 +2368,7 @@ class Parser {
       //   <LeftHandSideExpression> ++
       //   <LeftHandSideExpression> --
       tok = this.look; this.move();
-      if (x.op.tag == Tag.ID || x.op.tag == Tag.GS)
+      if (x.op.tag == TokenTag.ID || x.op.tag == TokenTag.GS)
         return new Postfix(x, tok);
       else
         this.error("Invalid left-hand side expression in postfix operation");
@@ -2278,14 +2383,14 @@ class Parser {
    */
   GetScoreExpression() {
     var x = this.PrimaryExpression(), t;
-    if (this.test([Tag.GS])) {
+    if (this.test([TokenTag.GS])) {
       // <GetScoreExpression> : <PrimaryExpression> -> <PrimaryExpression>
       this.move();
       return new GetScore(Word.gs, x, this.PrimaryExpression())
     } else if (this.test(["."])) {
       // <GetScoreExpression> : <PrimaryExpression> . <Identifier>
       this.move();
-      if (this.test([Tag.ID])) {
+      if (this.test([TokenTag.ID])) {
         t = this.look.toString();
         this.move();
         return new GetScore(Word.gs, x, Constant.from(t, Type.String))
@@ -2309,37 +2414,37 @@ class Parser {
         return x;
 
       // <PrimaryExpression> : <Literal>
-      case Tag.NUM:
+      case TokenTag.NUM:
         x = new Constant(this.look, Type.Int);
         this.move();
         return x;
-      case Tag.TRUE:
+      case TokenTag.TRUE:
         x = Constant.True;
         this.move();
         return x;
-      case Tag.FALSE:
+      case TokenTag.FALSE:
         x = Constant.False;
         this.move();
         return x;
-      case Tag.VANICMD:
+      case TokenTag.VANICMD:
         x = this.look;
         this.move();
         return new VanillaCmdNoTag(x);
-      case Tag.VANICMDHEAD:
+      case TokenTag.VANICMDHEAD:
         x = this.look;
         this.move();
         return new VanillaCmdTag(void 0, x, this.VanillaCommandWithTag());
-      case Tag.STRING:
+      case TokenTag.STRING:
         x = this.look;
         this.move();
         return new Constant(x, Type.String);
-      case Tag.SELECTOR:
+      case TokenTag.SELECTOR:
         x = this.look;
         this.move();
         return new Selector(x);
 
       // <PrimaryExpression> : <Identifier>
-      case Tag.ID:
+      case TokenTag.ID:
         x = this.look.toString();
         if (c) { this.move(); return this.look; }
         var id = this.top.get(this.look);
@@ -2355,9 +2460,9 @@ class Parser {
   VanillaCommandWithTag() {
     var x = this.AssignmentExpression(), t = this.look;
     this.move();
-    if (t.tag == Tag.VANICMDBODY)
+    if (t.tag == TokenTag.VANICMDBODY)
       return new VanillaCmdTag(x, t, this.VanillaCommandWithTag());
-    if (t.tag == Tag.VANICMDTAIL)
+    if (t.tag == TokenTag.VANICMDTAIL)
       return new VanillaCmdTag(x, t, void 0);
     this.errorUnexp();
   }
@@ -2365,7 +2470,7 @@ class Parser {
   executeSubcommands() {
     var t1 = this.look, t2 = this.topEL;
     while (this.look.tag !== ")") {
-      this.match(Tag.ID);
+      this.match(TokenTag.ID);
       switch (t1.type) {
         case EntityLayer.Type.AS:
         case EntityLayer.Type.AT:
