@@ -61,7 +61,7 @@ class TAC extends Array {
       this.registerPool = RegisterPool.Global;
     else this.registerPool = new RegisterPool();
 
-    var state = new Temp(Type.Int);
+    var state = new Temp(null, Type.Int);
     this.registerPool.getRegFor(state);
     this.chain.pushCB(`scoreboard players set ${state} 0`);
 
@@ -192,6 +192,7 @@ class TACGoto extends TACInst {
 
   gen(regPool, state, chain, id, delay) {
     //console.log(this, this.expr.toString())
+    var s1, x, x1, x2;
     if (options.targetVersion > 10180) {
       switch (this.type) {
         case TACGoto.Type.GOTO:
@@ -200,22 +201,28 @@ class TACGoto extends TACInst {
             CB.Type.CHAIN,
             delay
           );
-          break;
+          return;
         case TACGoto.Type.IF:
-          chain.pushCB(
-            `execute if score ${this.expr.toString()} run scoreboard players set ${state} ${this.label.baseblock.id}`,
-            CB.Type.CHAIN,
-            delay
-          );
+          s1 = "if";
           break;
         case TACGoto.Type.UNLESS:
+          s1 = "unless";
+          break;
+      }
+      if (this.expr.tag == ExprTag.REL) {
+        x1 = this.expr.expr1, x2 = this.expr.expr2;
+        if (x2.tag == ExprTag.CONST)
           chain.pushCB(
-            `execute unless score ${this.expr.toString()} run scoreboard players set ${state} ${this.label.baseblock.id}`,
+            `execute ${s1} score ${this.expr.toString()} matches run scoreboard players set ${state} ${this.label.baseblock.id}`,
             CB.Type.CHAIN,
             delay
           );
-          break;
-      }
+      } else if (this.expr.tag == ExprTag.SELECTOR)
+        chain.pushCB(
+          `execute ${s1} entity ${this.expr.toString()} run scoreboard players set ${state} ${this.label.baseblock.id}`,
+          CB.Type.CHAIN,
+          delay
+        );
     }
   }
 }

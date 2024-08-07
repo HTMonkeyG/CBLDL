@@ -55,27 +55,52 @@ import {
   TACLabel,
   TACVanilla
 } from "../backEnd/TAC.js";
+import { CompileContext } from "../utils/Context.js";
+import { CompileError, SimpleCompileErrorType, DynamicCompileErrorType } from "../utils/CompileErrors.js";
 
 class Parser {
   constructor(str) {
-    this.lexer = new Lexer(str);
-    this.look = void 0; // Lexer unit
+    this.input = str.replace(/\r\n?/g, "\n"); // Normalize line feeding
+    this.lexer = new Lexer(this.input);
+    this.look = null; // Lexer unit
     this.used = 0; // Uid of variable
-    this.top = new SymbolTable(void 0); // Current symbol table
+    this.top = new SymbolTable(null); // Current symbol table
     this.topEL = EntityLayer.Initial;
     this.done = !1;
     this.result = "";
     this.resultObj = void 0;
     this.modules = [];
+    this.context = null;
     this.move();
   }
 
   appendTAC(a) { this.resultObj.push(a) }
-  move() { this.look = this.lexer.scan() }
-  error(s) { throw new Error("Near line " + this.lexer.getLine() + ": " + s) }
-  match(t) { if (this.look.tag == t) this.move(); else this.error("Syntax error: Unexpected " + this.look.tag) }
-  test(t) { for (var e of t) if (e == this.look.tag) return true; return false }
-  errorUnexp(t) { this.error("Syntax error: Unexpected token " + (t ? t : this.look.tag)) }
+
+  move() {
+    var r = this.lexer.scan();
+    this.look = r.token;
+    this.look.context = new CompileContext(this.input, r.range, this.lexer, this);
+  }
+
+  error(s, ...arg) {
+    throw s.createWithContext(this.look.context, ...arg);
+  }
+
+  errorUnexp(t) {
+    this.error(CompileError.BuiltIn.unexpectedToken, (t ? t : this.look.tag))
+  }
+
+  match(t) {
+    if (this.look.tag == t) this.move();
+    else this.errorUnexp();
+  }
+
+  test(t) {
+    for (var e of t)
+      if (e == this.look.tag)
+        return true;
+    return false
+  }
 
   /**
    * CBLDL Program
@@ -190,17 +215,17 @@ class Parser {
     // <VariableDeclarationList> : <VariableDeclaration>
     var tok = this.look, id, s, expr;
     this.match(TokenTag.ID);
-    id = new Id(tok, void 0, this.used, p.isConst());
+    id = new Id(tok.context, tok, void 0, this.used, p.isConst());
     this.top.put(tok, id);
     this.used++;
 
     // <VariableDeclaration> : <Identifier>
     if (this.test([",", ";"])) {
       if (p.isConst())
-        this.error("Invalid constant declaration: Constant must have an initial value.");
+        this.error(CompileError.BuiltIn.missingInitializer);
       id.setType(Type.Int);
-      s = toplevel ? Stmt.Null : new AssignExpr(id, Constant.from(0));
-      return this.look == ';' ? s : (this.move(), new Seq(s, this.VariableDeclarationList(p, toplevel)));
+      s = toplevel ? Stmt.Null : new AssignExpr(tok.context, id, Constant.from(0));
+      return this.look == ';' ? s : (this.move(), new Seq(this.look.context, s, this.VariableDeclarationList(p, toplevel)));
     }
 
     // <VariableDeclaration> : <Identifier> <Initialiser>
@@ -215,13 +240,13 @@ class Parser {
       id.setValue(expr), s = Stmt.Null;
     else {
       if (expr.type == Type.Bool || expr.type == Type.Int)
-        id.setType(expr.type), s = new AssignExpr(id, expr);
+        id.setType(expr.type), s = new AssignExpr(tok.context, id, expr);
       else
-        id.setType(Type.Int), s = new AssignExpr(id, expr);
+        id.setType(Type.Int), s = new AssignExpr(tok.context, id, expr);
     }
 
     if (this.test([",", ";"]))
-      return this.look == ';' ? s : (this.move(), new Seq(s, this.VariableDeclarationList(p, toplevel)));
+      return this.look == ';' ? s : (this.move(), new Seq(this.look.context, s, this.VariableDeclarationList(p, toplevel)));
 
     this.errorUnexp();
   }
@@ -261,21 +286,13 @@ class Parser {
    * @returns {Stmt}
    */
   Stmts(m) {
-    // <Statement> :
-    //   <Block>
-    //   <VariableStatement>
-    //   <EmptyStatement>
-    //   <ExpressionStatement>
-    //   <IfStatement>
-    //   <IterationStatement>
-    //   <BreakStatement>
-    //   <DelayHardStatement>
-    //   <DeleteStatement>
-    //   <ExecuteStatement>
+    // <StatementList> :
+    //   <Statement>
+    //   <StatementList> <Statement>
     var f = [this.CPStmt, this.CPStmt, this.MStmt];
     if (this.look.tag == '}') return Stmt.Null;
     else if (this.look.tag == TokenTag.EOF) return Stmt.Null;
-    else return new Seq(f[m].call(this), this.Stmts(m))
+    else return new Seq(this.look.context, f[m].call(this), this.Stmts(m))
   }
 
   /** 
@@ -283,7 +300,8 @@ class Parser {
    * @returns {Stmt}
    */
   CPStmt() {
-    var x, s1, s2, savedEL;
+    // <ChainStatement>
+    var x, s1, s2, savedEL, tok;
     switch (this.look.tag) {
       case ';':
         // <EmptyStatement> : ;
@@ -292,20 +310,24 @@ class Parser {
 
       case TokenTag.IF:
         // <IfStatement> : if ( <Expression> ) <Statement>
+        tok = this.look;
         this.match(TokenTag.IF), this.match("("), x = this.AssignmentExpression(), this.match(")");
         s1 = this.CPStmt();
-        if (this.look.tag != TokenTag.ELSE) return new If(x, s1);
+        if (this.look.tag != TokenTag.ELSE) return new If(tok.context, x, s1);
         // <IfStatement> : if ( <Expression> ) <Statement> else <Statement>
+        tok = this.look;
         this.match(TokenTag.ELSE);
         s2 = this.CPStmt();
-        return new Else(x, s1, s2);
+        return new Else(tok.context, x, s1, s2);
 
       case TokenTag.EXECUTE:
-        this.match(TokenTag.EXECUTE); this.match('(');
+        tok = this.look;
+        this.match(TokenTag.EXECUTE);
         savedEL = this.topEL;
+        this.match('(');
         this.topEL = this.executeSubcommands();
         this.match(')');
-        s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+        s1 = new ExecuteStmt(tok.context, this.topEL, this.CPStmt());
         this.topEL = savedEL;
         return s1
 
@@ -329,10 +351,11 @@ class Parser {
         x = this.AssignmentExpression();
         // <ExecuteStatement> : <PrimaryExpression> => <Statement>
         if (this.look.tag == TokenTag.AE) {
+          tok = this.look;
           this.match(TokenTag.AE);
           savedEL = this.topEL;
           this.topEL = ExecuteStmt.createArrowExecuteEL(x, this.topEL);
-          s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+          s1 = new ExecuteStmt(tok.context, this.topEL, this.CPStmt());
           this.topEL = savedEL;
           return s1;
         } else
@@ -342,19 +365,22 @@ class Parser {
 
       case TokenTag.INITIAL:
         // <ExecuteStatement> : <PrimaryExpression> => <Statement>
-        this.move(); this.match(TokenTag.AE);
+        this.move();
+        tok = this.look;
+        this.match(TokenTag.AE);
         savedEL = this.topEL;
         this.topEL = EntityLayer.Initial;
-        s1 = new ExecuteStmt(this.topEL, this.CPStmt());
+        s1 = new ExecuteStmt(tok.context, this.topEL, this.CPStmt());
         this.topEL = savedEL;
         return s1;
 
       case TokenTag.DELAYH:
         // <DelayHardStatement> : <PrimaryExpression>
+        tok = this.look;
         this.move();
         x = this.PrimaryExpression();
         this.match(";");
-        return new DelayH(x);
+        return new DelayH(tok.context, x);
 
       default:
         this.errorUnexp()
@@ -420,17 +446,17 @@ class Parser {
     switch (tok.tag) {
       case "=":
         if (x.tag != ExprTag.REF && x.tag != ExprTag.GS)
-          this.error("Syntax error: Invalid left-hand side in assignment")
+          this.error(CompileError.BuiltIn.invalidAssign);
         this.match("=");
-        return new AssignExpr(x, this.AssignmentExpression());
+        return new AssignExpr(tok.context, x, this.AssignmentExpression());
       case "*=": case "/=": case "%=":
         if (x.tag != ExprTag.REF && x.tag != ExprTag.GS)
-          this.error("Syntax error: Invalid left-hand side in assignment")
+          this.error(CompileError.BuiltIn.invalidAssign);
       case "+=": case "-=":
         if (x.tag != ExprTag.ID && x.tag != ExprTag.GS && x.tag != ExprTag.SELECTOR)
-          this.error("Syntax error: Invalid left-hand side in assignment")
+          this.error(CompileError.BuiltIn.invalidAssign);
         this.move();
-        return new CompoundAssignExpr(x, this.AssignmentExpression(), tok);
+        return new CompoundAssignExpr(tok.context, x, this.AssignmentExpression(), tok);
       default:
         return x;
     }
@@ -446,7 +472,7 @@ class Parser {
     //   <LogicalORExpression> || <LogicalANDExpression>
     var x = this.LogicalANDExpression(), tok;
     while (this.test([TokenTag.OR]))
-      tok = this.look, this.move(), x = new Or(tok, x, this.LogicalANDExpression());
+      tok = this.look, this.move(), x = new Or(tok.context, tok, x, this.LogicalANDExpression());
     return x
   }
 
@@ -460,7 +486,7 @@ class Parser {
     //   <LogicalANDExpression> && <EqualityExpression>
     var x = this.EqualityExpression(), tok;
     while (this.test([TokenTag.AND]))
-      tok = this.look, this.move(), x = new And(tok, x, this.EqualityExpression());
+      tok = this.look, this.move(), x = new And(tok.context, tok, x, this.EqualityExpression());
     return x
   }
 
@@ -470,8 +496,13 @@ class Parser {
    */
   EqualityExpression() {
     var x = this.RelationalExpression(), tok;
-    while (this.test([TokenTag.EQ, TokenTag.NE]))
-      tok = this.look, this.move(), x = new Rel(tok, x, this.RelationalExpression());
+    while (this.test([TokenTag.EQ, TokenTag.NE])) {
+      tok = this.look, this.move();
+      // Change != to ==
+      x = tok.tag == TokenTag.NE ?
+        new Not(tok.context, new Rel(tok.context, Word.eq, x, this.RelationalExpression()))
+        : new Rel(tok.context, Word.eq, x, this.RelationalExpression());
+    }
     return x
   }
 
@@ -482,7 +513,7 @@ class Parser {
   RelationalExpression() {
     var x = this.AdditiveExpression(), tok;
     if (this.test(['<', TokenTag.LE, TokenTag.GE, '>']))
-      tok = this.look, this.move(), x = new Rel(tok, x, this.AdditiveExpression());
+      tok = this.look, this.move(), x = new Rel(tok.context, tok, x, this.AdditiveExpression());
     return x
   }
 
@@ -497,7 +528,7 @@ class Parser {
     //   <AdditiveExpression> - <MultiplicativeExpression>
     var x = this.MultiplicativeExpression(), tok;
     while (this.test(["+", "-"]))
-      tok = this.look, this.move(), x = new Arith(tok, x, this.MultiplicativeExpression());
+      tok = this.look, this.move(), x = new Arith(tok.context, tok, x, this.MultiplicativeExpression());
     return x
   }
 
@@ -513,7 +544,7 @@ class Parser {
     //   <MultiplicativeExpression> % <UnaryExpression></UnaryExpression>
     var x = this.UnaryExpression(), tok;
     while (this.test(["*", "/", "%"]))
-      tok = this.look, this.move(), x = new Arith(tok, x, this.UnaryExpression());
+      tok = this.look, this.move(), x = new Arith(tok.context, tok, x, this.UnaryExpression());
     return x
   }
 
@@ -525,22 +556,22 @@ class Parser {
     var tok = this.look;
     if (this.test(["-"])) {
       // <UnaryExpression> : - <UnaryExpression>
-      this.move(); return new Unary(Word.minus, this.UnaryExpression())
+      this.move(); return new Unary(tok.context, Word.minus, this.UnaryExpression())
     } else if (this.test(["+"])) {
       // <UnaryExpression> : + <UnaryExpression>
       this.move(); return this.UnaryExpression()
     } else if (this.test(["!"])) {
       // <UnaryExpression> : ! <UnaryExpression>
-      this.move(); return new Not(tok, this.UnaryExpression())
+      this.move(); return new Not(tok.context, tok, this.UnaryExpression())
     } else if (this.test(["++", "--"])) {
       // <UnaryExpression> : 
       //   ++ <UnaryExpression>
       //   -- <UnaryExpression>
       this.move();
       if (this.test([TokenTag.ID]))
-        return new Prefix(this.UnaryExpression(), tok);
+        return new Prefix(tok.context, this.UnaryExpression(), tok);
       else
-        this.error("Invalid left-hand side expression in prefix operation");
+        this.error(CompileError.BuiltIn.invalidPrefix);
     } else
       // <UnaryExpression> : - <PostfixExpression>
       return this.PostfixExpression();
@@ -558,9 +589,9 @@ class Parser {
       //   <LeftHandSideExpression> --
       tok = this.look; this.move();
       if (x.op.tag == TokenTag.ID || x.op.tag == TokenTag.GS)
-        return new Postfix(x, tok);
+        return new Postfix(tok.context, x, tok);
       else
-        this.error("Invalid left-hand side expression in postfix operation");
+      this.error(CompileError.BuiltIn.invalidPostfix);
     } else
       // <PostfixExpression> : <LeftHandSideExpression>
       return x;
@@ -571,19 +602,21 @@ class Parser {
    * @returns {Expr}
    */
   GetScoreExpression() {
-    var x = this.PrimaryExpression(), t;
+    var x = this.PrimaryExpression(), t, tok;
     if (this.test([TokenTag.GS])) {
       // <GetScoreExpression> : <PrimaryExpression> -> <PrimaryExpression>
+      tok = this.look
       this.move();
-      return new GetScore(Word.gs, x, this.PrimaryExpression())
+      return new GetScore(tok.context, Word.gs, x, this.PrimaryExpression())
     } else if (this.test(["."])) {
       // <GetScoreExpression> : <PrimaryExpression> . <Identifier>
+      tok = this.look
       this.move();
       if (this.test([TokenTag.ID])) {
         t = this.look.toString();
         this.move();
-        return new GetScore(Word.gs, x, Constant.from(t, Type.String))
-      } else this.errorUnexp(i)
+        return new GetScore(tok.context, Word.gs, x, Constant.from(t, Type.String))
+      } else this.errorUnexp()
     } else
       // <GetScoreExpression> : <PrimaryExpression>
       return x
@@ -604,7 +637,7 @@ class Parser {
 
       // <PrimaryExpression> : <Literal>
       case TokenTag.NUM:
-        x = new Constant(this.look, Type.Int);
+        x = new Constant(this.look.context, this.look, this.look.isInteger() ? Type.Int : Type.Float);
         this.move();
         return x;
       case TokenTag.TRUE:
@@ -618,26 +651,28 @@ class Parser {
       case TokenTag.VANICMD:
         x = this.look;
         this.move();
-        return new VanillaCmdNoTag(x);
+        return new VanillaCmdNoTag(x.context, x);
       case TokenTag.VANICMDHEAD:
         x = this.look;
         this.move();
-        return new VanillaCmdTag(void 0, x, this.VanillaCommandWithTag());
+        return new VanillaCmdTag(x.context, void 0, x, this.VanillaCommandWithTag());
       case TokenTag.STRING:
         x = this.look;
         this.move();
-        return new Constant(x, Type.String);
+        return new Constant(x.context, x, Type.String);
       case TokenTag.SELECTOR:
         x = this.look;
         this.move();
-        return new Selector(x);
+        return new Selector(x.context, x);
 
       // <PrimaryExpression> : <Identifier>
       case TokenTag.ID:
         x = this.look.toString();
         if (c) { this.move(); return this.look; }
         var id = this.top.get(this.look);
-        if (id == void 0) this.error(x + " is undeclared");
+        if (id == void 0)
+          //this.error(x + " is undeclared");
+          this.error(CompileError.BuiltIn.notDeclared, x)
         this.move();
         return id;
 
@@ -650,9 +685,9 @@ class Parser {
     var x = this.AssignmentExpression(), t = this.look;
     this.move();
     if (t.tag == TokenTag.VANICMDBODY)
-      return new VanillaCmdTag(x, t, this.VanillaCommandWithTag());
+      return new VanillaCmdTag(t.context, x, t, this.VanillaCommandWithTag());
     if (t.tag == TokenTag.VANICMDTAIL)
-      return new VanillaCmdTag(x, t, void 0);
+      return new VanillaCmdTag(t.context, x, t, void 0);
     this.errorUnexp();
   }
 

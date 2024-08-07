@@ -1,12 +1,23 @@
 {
   "name": "hlcl",
   "version": "1.0.0",
-  "description": "",
+  "description": "A programming language designed for Minecraft Bedrock commands.",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HTMonkeyG/CBLDL.git"
+  },
   "author": "HTMonkeyG",
-  "license": "GPL-3.0-or-later"
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/HTMonkeyG/CBLDL/issues"
+  },
+  "homepage": "https://github.com/HTMonkeyG/CBLDL#readme",
+  "dependencies": {
+    "parsenbt-js": "^1.1.2"
+  }
 }

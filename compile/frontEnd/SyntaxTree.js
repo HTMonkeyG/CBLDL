@@ -20,13 +20,27 @@ import {
 } from "./Token.js";
 import { ExprTag, TokenTag } from "../utils/Enums.js";
 import { EntityLayer, SymbolTable } from "../utils/Env.js";
+import { CompileError, SimpleCompileErrorType, DynamicCompileErrorType } from "../utils/CompileErrors.js";
+import { CompileContext } from "../utils/Context.js";
 
 /** Abstract Syntax Tree Node */
 class ASTNode {
-  constructor() { this.lexline = ASTNode.lexer && ASTNode.lexer.getLine(); this.labels = 0; this.entityLayer = void 0 }
+  /** @param {CompileContext} context  */
+  constructor(context) {
+    //this.lexline = ASTNode.lexer && ASTNode.lexer.getLine();
+    this.context = context || null;
+    this.lexline = context ? context.lexer.getLine() : -1;
+    this.labels = 0;
+  }
   static labels = 0;
-  /** Throw an error */
-  error(s) { throw new Error("Near line " + this.lexline + ": " + s) }
+  /**
+   * Throw an error
+   * @param {SimpleCompileErrorType|DynamicCompileErrorType} s 
+   * @throws {CompileError}
+   */
+  error(s) {
+    throw this.context ? s.createWithContext(this.context) : s.create()
+  }
   /** 
    * Assign a new label.
    * @returns {TACLabel} Label
@@ -82,8 +96,8 @@ class ASTNode {
 
 /** Statement implement. @extends ASTNode */
 class Stmt extends ASTNode {
-  constructor() { super(); this.after = 0; this.useLabel = 0 }
-  static Null = new Stmt();
+  constructor(context) { super(context); this.after = 0; this.useLabel = 0 }
+  static Null = new Stmt(null);
   static Enclosing = Stmt.Null;
   /** 
    * Gen as a stmt.
@@ -100,8 +114,8 @@ class If extends Stmt {
    * @param {Expr} x - Condition expression
    * @param {Stmt} s - Statement
    */
-  constructor(x, s) {
-    super();
+  constructor(context, x, s) {
+    super(context);
     this.useLabel = 1;
     this.expr = x;
     this.stmt = s;
@@ -122,8 +136,8 @@ class Else extends Stmt {
    * @param {Stmt} s1 - If statement
    * @param {Stmt} s2 - Else statement
    */
-  constructor(x, s1, s2) {
-    super();
+  constructor(context, x, s1, s2) {
+    super(context);
     this.useLabel = 1;
     this.expr = x;
     this.stmt1 = s1;
@@ -144,7 +158,7 @@ class Else extends Stmt {
 
 /** While statement. @extends Stmt */
 class While extends Stmt {
-  constructor() { super(); this.expr = null; this.stmt = null; this.useLabel = 1; }
+  constructor(context) { super(context); this.expr = null; this.stmt = null; this.useLabel = 1; }
   /** 
    * Initiate while node.
    * @param {Expr} x - Condition expression
@@ -167,7 +181,7 @@ class While extends Stmt {
 
 /** Do-While statement. @extends Stmt */
 class Do extends Stmt {
-  constructor() { super(); this.expr = void 0; this.stmt = void 0; this.useLabel = 1; }
+  constructor(context) { super(context); this.expr = void 0; this.stmt = void 0; this.useLabel = 1; }
   /** 
    * Initiate Do-While node.
    * @param {Stmt} s - Statement
@@ -199,8 +213,8 @@ class Seq extends Stmt {
    * @param {Stmt} s1 - Statement1
    * @param {Stmt} s2 - Statement2
    */
-  constructor(s1, s2) {
-    super();
+  constructor(context, s1, s2) {
+    super(context);
     this.stmt1 = s1;
     this.stmt2 = s2;
   }
@@ -219,8 +233,8 @@ class Seq extends Stmt {
 
 /** Break statement. @extends Stmt */
 class Break extends Stmt {
-  constructor() {
-    super();
+  constructor(context) {
+    super(context);
     if (Stmt.Enclosing == Stmt.Null) this.error("Unenclosed break");
     this.stmt = Stmt.Enclosing;
   }
@@ -239,8 +253,8 @@ class DelayH extends Stmt {
   /**
    * @param {Expr} x - Inteval in ticks
    */
-  constructor(x) {
-    super();
+  constructor(context, x) {
+    super(context);
     if (x.type != Type.Int)
       this.error("Type error: Delay must be an integer.");
     var v = Expr.getConstValue(x);
@@ -255,8 +269,8 @@ class Delete extends Stmt {
   /**
    * @param {Reference} x - Inteval in ticks
    */
-  constructor(x) {
-    super();
+  constructor(context, x) {
+    super(context);
     if (x.type != Type.Int)
       this.error("Type error: Delay must be an integer.");
     if (x.tag != ExprTag.CONST && x.tag != ExprTag.REF)
@@ -291,7 +305,7 @@ class ExecuteStmt extends Stmt {
     return new EntityLayer(
       new EntityLayer(top, EntityLayer.Type.AS, tok)
       , EntityLayer.Type.AT
-      , new Selector(new SelectorLiteral("@s"))
+      , new Selector(null, new SelectorLiteral("@s"))
     )
   }
 
@@ -299,14 +313,14 @@ class ExecuteStmt extends Stmt {
    * @param {EntityLayer} l - Entity layer stack
    * @param {Stmt} s - Statement
    */
-  constructor(l, s) {
-    super();
+  constructor(context, l, s) {
+    super(context);
     this.stmt = s;
     this.entityLayer = l;
   }
 
   gen(b, a, l) {
-    console.log("execute as ", this.entityLayer)
+    //console.log("execute as ", this.entityLayer)
     this.stmt.gen(b, a, this.entityLayer);
   }
 }
@@ -318,7 +332,7 @@ class Expr extends Stmt {
    * @param {Token} t - Token representing the expression
    * @param {Type} p - Type of the expression
    */
-  constructor(t, p) { super(); this.op = t; this.type = p; this.tag = ExprTag.EXPR }
+  constructor(context, t, p) { super(context); this.op = t; this.type = p; this.tag = ExprTag.EXPR }
 
   /** Gen as the right-hand side of a TAC. */
   genRightSide() { return this }
@@ -374,8 +388,8 @@ class Reference extends Expr {
    * @param {Type} p - Type of the identifier
    * @param {Boolean} isConst - True if constant type
    */
-  constructor(tok, p, isConst) {
-    super(tok, p);
+  constructor(context, tok, p, isConst) {
+    super(context, tok, p);
     this.tag = ExprTag.REF;
     this.const = !!isConst;
     this.lastRead = null;
@@ -439,8 +453,8 @@ class Id extends Reference {
    * @param {Number} b - UID of the identifier
    * @param {Boolean} c - True if constant type
    */
-  constructor(id, p, b, c) {
-    super(id, p, c);
+  constructor(context, id, p, b, c) {
+    super(context, id, p, c);
     this.offset = b;
   }
   genRightSide() { if (this.const) return this.value; else return this }
@@ -452,8 +466,8 @@ class Temp extends Reference {
   /**
    * @param {Type} p - Type of temp
    */
-  constructor(p) {
-    super(Word.temp, p, p.isConst());
+  constructor(context, p) {
+    super(context, Word.temp, p, p.isConst());
     this.number = ++Temp.count;
   }
   toString(s) { if (!s) return this.reg.toString(); else return "t" + this.number }
@@ -465,10 +479,10 @@ class Op extends Expr {
    * @param {Token} tok - Token of the operator
    * @param {Type} p - Type of the expression
    */
-  constructor(tok, p) { super(tok, p) }
+  constructor(context, tok, p) { super(context, tok, p) }
   reduce(a) {
     var x = this.genRightSide()
-      , t = new Temp(this.type);
+      , t = new Temp(this.context, this.type);
     this.emitassign(t, x);
     return t
   }
@@ -499,8 +513,8 @@ class Arith extends Op {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) {
-    super(tok, void 0);
+  constructor(context, tok, x1, x2) {
+    super(context, tok, void 0);
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = Type.max(x1.type, x2.type);
@@ -524,7 +538,7 @@ class Arith extends Op {
     if (typeof (v = this.calc()) !== 'undefined')
       return v;
     var x = this.genRightSide()
-      , t = new Temp(this.type);
+      , t = new Temp(this.context, this.type);
     this.emitassign(t, x);
     return t
   }
@@ -533,7 +547,7 @@ class Arith extends Op {
     var v;
     if (typeof (v = this.calc()) !== 'undefined')
       return v;
-    return new Arith(this.op, this.expr1.reduce(), this.expr2.reduce(this.tag))
+    return new Arith(this.context, this.op, this.expr1.reduce(), this.expr2.reduce(this.tag))
   }
 
   toString() { return this.expr1.toString() + " " + this.op.toString() + " " + this.expr2.toString() }
@@ -552,8 +566,8 @@ class GetScore extends Op {
    * @param {Expr} x1 - Target
    * @param {Expr} x2 - Scoreboard object
    */
-  constructor(tok, x1, x2) {
-    super(tok, void 0);
+  constructor(context, tok, x1, x2) {
+    super(context, tok, void 0);
     this.target = x1;
     this.scb = x2;
     this.type = Type.Vector;
@@ -561,7 +575,7 @@ class GetScore extends Op {
     if (x1.type != Type.String && x1.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x1.type.lexeme);
     if (x2.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x2.type.lexeme);
   }
-  genRightSide() { return new GetScore(this.op, this.target.reduce(this.tag), this.scb.reduce()) }
+  genRightSide() { return new GetScore(this.context, this.op, this.target.reduce(this.tag), this.scb.reduce()) }
   toString() { return this.target.toString() + " " + this.scb.toString() }
   /**
    * @param {Boolean} a - Only CompoundAssign uses this param.
@@ -587,8 +601,8 @@ class Unary extends Op {
    * @param {Token} tok - Token of the operator
    * @param {Expr} x - Expression
    */
-  constructor(tok, x) {
-    super(tok, void 0);
+  constructor(context, tok, x) {
+    super(context, tok, void 0);
     this.expr = x;
     this.type = Type.max(Type.Int, x.type);
     this.tag = ExprTag.UNARY;
@@ -596,9 +610,9 @@ class Unary extends Op {
   }
   genRightSide() {
     if (this.op == Word.minus)
-      return new Arith(new Token('*'), new Constant(new NumericLiteral(-1)), this.expr.reduce());
+      return new Arith(this.context, new Token('*'), new Constant(null, new NumericLiteral(-1)), this.expr.reduce());
     else
-      return new Unary(this.op, this.expr.reduce())
+      return new Unary(this.context, this.op, this.expr.reduce())
   }
   toString() { return this.op.toString() + " " + this.expr.toString() }
 }
@@ -609,13 +623,13 @@ class Constant extends Expr {
    * @param {Token} a - Token of the constant
    * @param {Type} b - Type
    */
-  constructor(a, b) {
-    if (b) super(a, b);
-    else super(a, Type.Int);
+  constructor(context, a, b) {
+    if (b) super(context, a, b);
+    else super(context, a, Type.Int);
     this.tag = ExprTag.CONST
   }
-  static True = new Constant(new NumericLiteral(1), Type.Bool);
-  static False = new Constant(new NumericLiteral(0), Type.Bool);
+  static True = new Constant(null, new NumericLiteral(1), Type.Bool);
+  static False = new Constant(null, new NumericLiteral(0), Type.Bool);
   getValue() { return this.op }
   jumping(t, f) {
     if (this == Constant.True && t != 0) this.emitgoto(t);
@@ -624,7 +638,7 @@ class Constant extends Expr {
   reduce(a) {
     if (this.type == Type.Int && a == ExprTag.ARITH) {
       var x = this.genRightSide()
-        , t = new Temp(Type.Int);
+        , t = new Temp(this.context, Type.Int);
       this.emitassign(t, x);
       return t
     } else
@@ -646,7 +660,7 @@ class Constant extends Expr {
         t = new NumericLiteral(v);
         break;
     }
-    return new Constant(t, p)
+    return new Constant(null, t, p)
   }
 }
 
@@ -656,8 +670,8 @@ class AssignExpr extends Expr {
    * @param {Token} i - Identifier to be assigned
    * @param {Expr} x - Right-hand-side expression
    */
-  constructor(i, x) {
-    super(void 0, x.type);
+  constructor(context, i, x) {
+    super(context, void 0, x.type);
     this.id = i;
     this.expr = x;
     if (this.check(i.type, x.type) == void 0) this.error("Type error: Type mismatch in assign");
@@ -693,7 +707,7 @@ class CompoundAssignExpr extends AssignExpr {
    * @param {Expr} x - Right-hand-side expression
    * @param {Token} op - Operator
    */
-  constructor(i, x, op) { super(i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
+  constructor(context, i, x, op) { super(context, i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
   genRightSide() {
     var x;
     if (this.id.type == Type.Selector && this.expr.type == Type.String) {
@@ -713,8 +727,8 @@ class Prefix extends CompoundAssignExpr {
    * @param {Token} i - Identifier to be assigned
    * @param {Token} op - Operator
    */
-  constructor(i, op) {
-    super(i, i, op);
+  constructor(context, i, op) {
+    super(context, i, i, op);
     if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
       this.error("Invalid left-hand side expression in prefix operation");
     this.tag = ExprTag.PREF
@@ -735,8 +749,8 @@ class Postfix extends CompoundAssignExpr {
    * @param {Token} i - Identifier to be assigned
    * @param {Token} op - Operator
    */
-  constructor(i, op) {
-    super(i, i, op);
+  constructor(context, i, op) {
+    super(context, i, i, op);
     if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
       this.error("Invalid left-hand side expression in postfix operation");
     this.tag = ExprTag.POSTF
@@ -749,7 +763,7 @@ class Selector extends Expr {
   /**
    * @param {Token} tok - Token of selector
    */
-  constructor(tok) { super(tok, Type.Selector); this.tag = ExprTag.SELECTOR }
+  constructor(context, tok) { super(context, tok, Type.Selector); this.tag = ExprTag.SELECTOR }
   /**
    * @param {Boolean} a - Only GetScore & VaniCmd uses this param.
    * 
@@ -761,7 +775,7 @@ class Selector extends Expr {
     if (a == ExprTag.GS || a == ExprTag.VANICMD)
       return this
     else {
-      var t = new Temp(Type.Int);
+      var t = new Temp(this.context, Type.Int);
       this.emitassign(t, this);
       return t
     }
@@ -776,8 +790,8 @@ class Logical extends Expr {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) {
-    super(tok, void 0);
+  constructor(context, tok, x1, x2) {
+    super(context, tok, void 0);
     this.expr1 = x1;
     this.expr2 = x2;
     this.type = this.check(x1.type, x2.type);
@@ -798,7 +812,7 @@ class Logical extends Expr {
   genRightSide() {
     var f = this.newlabel()
       , a = this.newlabel()
-      , temp = new Temp(this.type);
+      , temp = new Temp(this.context, this.type);
     this.jumping(0, f);
     this.emitassign(temp, Constant.True);
     this.emitgoto(a);
@@ -818,7 +832,7 @@ class Or extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.OR }
+  constructor(context, tok, x1, x2) { super(context, tok, x1, x2); this.tag = ExprTag.OR }
   jumping(t, f) {
     var label = t != 0 ? t : this.newlabel();
     this.expr1.jumping(label, 0);
@@ -834,7 +848,7 @@ class And extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.AND }
+  constructor(context, tok, x1, x2) { super(context, tok, x1, x2); this.tag = ExprTag.AND }
   jumping(t, f) {
     var label = f != 0 ? f : this.newlabel();
     this.expr1.jumping(0, label);
@@ -849,7 +863,7 @@ class Not extends Logical {
    * @param {Token} tok - Token of operator
    * @param {Expr} x2 - Expression
    */
-  constructor(tok, x2) { super(tok, x2, x2); this.tag = ExprTag.NOT }
+  constructor(context, tok, x2) { super(context, tok, x2, x2); this.tag = ExprTag.NOT }
   jumping(t, f) { this.expr2.jumping(f, t); }
   toString() { return this.op.toString() + " " + this.expr2.toString() }
 }
@@ -861,26 +875,36 @@ class Rel extends Logical {
    * @param {Expr} x1 - Expression in the left side of operator
    * @param {Expr} x2 - Expression in the right side of operator
    */
-  constructor(tok, x1, x2) { super(tok, x1, x2); this.tag = ExprTag.REL }
+  constructor(context, tok, x1, x2) {
+    super(context, tok, x1, x2);
+    this.tag = ExprTag.REL
+  }
+
   jumping(t, f) {
     var x1 = this.expr1.reduce(this.tag), x2 = this.expr2.reduce(this.tag);
-    //if (this.expr1.tag == ExprTag.CONST)
-    //this.emitjumps(new Rel(Rel.move(this.op), x2, x1), t, f);
-    //else 
-    this.emitjumps(new Rel(this.op, x1, x2), t, f);
+    // Move constant to the right side
+    if (this.expr1.tag == ExprTag.CONST)
+      this.emitjumps(Rel.swap(new Rel(this.context, this.op, x1, x2)), t, f);
+    else
+      this.emitjumps(new Rel(this.context, this.op, x1, x2), t, f);
   }
-  static move(t) {
-    switch (t.tag) {
+  static swap(x) {
+    var op = x.op;
+    switch (op.tag) {
       case "<":
-        return new Token(">");
+        op = new Token(">");
+        break;
       case ">":
-        return new Token("<");
+        op = new Token("<");
+        break;
       case "<=":
-        return new Token(">=");
+        op = Word.ge;
+        break;
       case ">=":
-        return new Token("<=");
+        op = Word.le;
+        break;
     }
-    return t
+    return new Rel(x.context, op, x.expr2, x.expr1);
   }
 }
 
@@ -895,13 +919,13 @@ class VanillaCmdNoTag extends Expr {
   /**
    * @param {Token} tok - Token of vanilla command
    */
-  constructor(tok) { super(tok, Type.Bool); this.cmd = tok; this.tag = ExprTag.VANICMD }
+  constructor(context, tok) { super(context, tok, Type.Bool); this.cmd = tok; this.tag = ExprTag.VANICMD }
   gen() { this.emitvanilla(this.cmd.toString()) }
   toString() { return this.cmd.toString() }
   genRightSide() {
     var f = this.newlabel()
       , a = this.newlabel()
-      , temp = new Temp(this.type);
+      , temp = new Temp(this.context, this.type);
     this.jumping(0, f);
     this.emitassign(temp, Constant.True);
     this.emitgoto(a);
@@ -926,8 +950,8 @@ class VanillaCmdTag extends Expr {
    * @param {Token} tok - Token of this segment
    * @param {VanillaCmdTag} next - Next segment
    */
-  constructor(x, tok, next) {
-    super(tok, Type.Bool);
+  constructor(context, x, tok, next) {
+    super(context, tok, Type.Bool);
     this.expr = x;
     this.next = next;
     this.tag = ExprTag.VANICMD
@@ -946,7 +970,7 @@ class VanillaCmdTag extends Expr {
   genRightSide() {
     var f = this.newlabel()
       , a = this.newlabel()
-      , temp = new Temp(this.type);
+      , temp = new Temp(this.context, this.type);
     this.jumping(0, f);
     this.emitassign(temp, Constant.True);
     this.emitgoto(a);
@@ -960,7 +984,7 @@ class VanillaCmdTag extends Expr {
     var x, t;
     if (this.expr) x = this.expr.reduce(this.tag);
     t = this.next ? this.next.reduceAll() : void 0;
-    return new VanillaCmdTag(x, this.op, t)
+    return new VanillaCmdTag(this.context, x, this.op, t)
   }
   reduce() { return this.genRightSide() }
 }

@@ -20,19 +20,23 @@ var temp1 = {};
 options.defaultScb = "aaa";
 
 function main() {
-  var str = fs.readFileSync("./compile_modulized/test.hlcl", "utf-8");
+  var str = fs.readFileSync("./compile/test.hlcl", "utf-8");
   Token.uid = 0;
   ASTNode.labels = 0;
   Temp.count = 0;
   var parse = new Parser(str);
   ASTNode.lexer = parse.lexer;
   ASTNode.parser = parse;
-  parse.Program();
-  //console.log(parse.top)
-  //console.log(temp1 = parse.modules);
-  temp1 = parse.modules;
+  try {
+    parse.Program();
+    //console.log(parse.top)
+    //console.log(temp1 = parse.modules);
+    temp1 = parse.modules;
 
-  temp1[1].gen();
+    temp1[1].gen();
+  } catch (e){
+    throw e.getMessage();
+  }
 
   console.log(temp1[1].chain[0].cmd);
 }

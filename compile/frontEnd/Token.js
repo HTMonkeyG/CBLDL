@@ -6,7 +6,7 @@ class Token {
   /** 
    * @param {*} t - Tag of the token
    */
-  constructor(t) { this.tag = t; this.uid = Token.uid++ }
+  constructor(t) { this.tag = t; this.uid = Token.uid++; this.context = null }
   toString() { return this.tag }
   static uid = 0;
   static EOF = new Token(TokenTag.EOF)
@@ -16,11 +16,24 @@ class Token {
 class NumericLiteral extends Token {
   /**
    * @param {Number} v - Numeric value
+   * @param {String} o - Original string
    */
-  constructor(v) { super(TokenTag.NUM); this.value = v }
+  constructor(v, o) {
+    super(TokenTag.NUM);
+    if (Number.isNaN(v) || !Number.isFinite(v))
+      throw new Error("Invalid number: " + o);
+    if (v > 2147483647)
+      throw new Error("Number too high: " + o);
+    if (v < -2147483648)
+      throw new Error("Number too low: " + o);
+    this.value = v
+  }
+
   getValue() { return this.value }
+
   toString() { return this.value.toString() }
-  isInteger() { return Math.isInteger(this.value) }
+
+  isInteger() { return Number.isInteger(this.value) }
 }
 
 /** A string token */

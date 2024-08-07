@@ -9,6 +9,7 @@ import {
   ExecuteSubcommand
 } from "./Token.js";
 import { TokenTag } from "../utils/Enums.js";
+import { StringRange } from "../utils/Context.js";
 
 /**
  * Lexer analyzer
@@ -16,27 +17,49 @@ import { TokenTag } from "../utils/Enums.js";
  */
 function Lexer(s) {
   function readNext() {
+    offsetInLine++;
     if (ptr > str.length) throw new Error("String Ends");
-    return str[ptr++]
+    return strArr[++ptr]
   }
-  function canRead() { return ptr <= str.length }
+
+  function canRead() { return ptr < strArr.length }
   function reserve(w) { words.set(w.lexeme, w) }
+  function isch(c) { if (peek != c) return !1; peek = " "; return !0 }
   function readch(c) {
     peek = readNext();
     if (peek != c) return !1;
     peek = " ";
     return !0
   }
-  function isch(c) { if (peek != c) return !1; peek = " "; return !0 }
+
   function skipWhitespace() {
     for (; canRead(); readch()) {
-      if (peek === ' ' || peek === "\t") continue;
-      else if (peek === "\n") line += 1;
-      else break;
+      if (isWhitespace()) continue;
+      else if (peek == "\n") line++, offsetInLine = 0;
+      else return;
     }
   }
+
+  function skipComment(ch) {
+    readch();
+    if (ch == "/") {
+      for (; canRead(); readch())
+        if (peek == '\n') return line++, offsetInLine = 0, peek = " ";
+    } else if (ch == '*') {
+      var s = 0;
+      for (; canRead(); readch()) {
+        if (peek == '\n') line++, offsetInLine = 0;
+        if (s && peek == '/') return peek = " ";
+        else if (s) s = 0;
+
+        if (peek == '*') s = 1;
+      }
+    }
+  }
+
   function scan() {
     skipWhitespace();
+    begin = ptr;
     if (!canRead()) return Token.EOF;
 
     switch (peek) {
@@ -73,6 +96,8 @@ function Lexer(s) {
         else return new Token('*');
       case '/':
         if (readch('=')) return new Token("/=");
+        else if (isch('*')) return skipComment('*'), scan();
+        else if (isch('/')) return skipComment('/'), scan();
         else return new Token('/');
       case '%':
         if (readch('=')) return new Token("%=");
@@ -110,20 +135,23 @@ function Lexer(s) {
   }
 
   function readNumber() {
-    var v = 0;
+    var v = 0, o = "";
     do {
       v = 10 * v + Number(peek);
+      o += peek;
       readch()
     } while (/\d/.test(peek))
-    if (peek != ".") return new NumericLiteral(v);
+    if (peek != ".") return new NumericLiteral(v, o);
     var x = v, d = 10;
+    o += ".";
     for (; canRead();) {
       readch();
       if (!/\d/.test(peek)) break;
+      o += peek;
       x += Number(peek) / d;
       d *= 10;
     }
-    return new NumericLiteral(x)
+    return new NumericLiteral(x, o)
   }
 
   function readStringUntil(terminator) {
@@ -149,19 +177,11 @@ function Lexer(s) {
     }
   }
 
-  function isUnquotedStringStart() {
-    //return /[a-z$A-Z_\u4e00-\u9fa5]/.test(peek)
-    //return !/[\ ~`!@#%\^&\*\(\)\-=+\|\\'":;\?\/\.><,\[\]\}\{0-9]/.test(peek)
-    //return !/[\ -#%-@\[-\^`\{-\~]/.test(peek)
-    return /[\p{ID_Start}]/u.test(peek)
-  }
+  function isUnquotedStringStart() { return /[\p{ID_Start}]/u.test(peek) }
 
-  function isUnquotedString() {
-    //return /[a-z0-9$A-Z_\u4e00-\u9fa5]/.test(peek)
-    //return !/[\ ~`!@#%\^&\*\(\)\-=+\|\\'":;\?\/\.><,\[\]\}\{]/.test(peek)
-    //return !/[\ -#%-\/:-@\[-\^`\{-\~]/.test(peek)
-    return /[\p{ID_Continue}]/u.test(peek)
-  }
+  function isUnquotedString() { return /[\p{ID_Continue}]/u.test(peek) }
+
+  function isWhitespace() { return /[\u0009\u000B\u000C\uFEFF\p{Space_Separator}]/u.test(peek) }
 
   function readStringUnquoted() {
     var result = "";
@@ -185,7 +205,8 @@ function Lexer(s) {
     if (!s)
       return new Token('@');
 
-    if (peek != "[") return new SelectorLiteral(v);
+    if (peek != "[")
+      return new SelectorLiteral(v);
     else {
       v += "[" + readStringUntil("]") + "]";
       return new SelectorLiteral(v);
@@ -223,11 +244,14 @@ function Lexer(s) {
   }
 
   var words = new Map()
-    , str = s.replace(/\r\n?/g, "\n").replace(/(\/\*(.|\r?\n)*\*\/)|(\/\/.*\r?\n)/g, "") // Ignore comments
-    , ptr = 0
+    , str = s
+    , strArr = Array.from(str)
+    , ptr = -1
     , peek = " "
     , line = 1
-    , readingVaniCmd = !1;
+    , offsetInLine = 0
+    , readingVaniCmd = !1
+    , begin = 0;
 
   /* Reserved words */
   reserve(ExecuteSubcommand.If);
@@ -257,8 +281,21 @@ function Lexer(s) {
   reserve(ExecuteSubcommand.Facing);
   reserve(ExecuteSubcommand.Rotated);
 
-  this.scan = scan;
+  this.scan = function () {
+    var r = scan();
+    return {
+      token: r,
+      range: typeof r.tag == 'string' ?
+        new StringRange(begin, begin + r.tag.length)
+        : typeof r.lexeme == 'string' ?
+          new StringRange(begin, begin + r.lexeme.length)
+          : new StringRange(begin, ptr)
+    }
+  };
   this.getLine = function () { return line };
+  this.getLineOffset = function () { return offsetInLine };
+  this.getInput = function () { return str };
+  this.getPtr = function () { return ptr }
 }
 
 export { Lexer };

@@ -10,7 +10,7 @@ class SymbolTable {
   put(w, i) { this.table.set(w, i) }
 
   get(w) {
-    for (var i = this, found; i != void 0; i = i.prev)
+    for (var i = this, found; !!i; i = i.prev)
       if ((found = i.table.get(w)), found != void 0) return found;
     return void 0
   }
@@ -32,7 +32,7 @@ class EntityLayer {
     IF: 10,
     UNLESS: 11
   };
-  static Initial = new EntityLayer(void 0, void 0, void 0);
+  static Initial = new EntityLayer(null, null, null);
   /**
    * @param {EntityLayer|undefined} prev - Previous entity layer
    * @param {String} type - Current layer's type

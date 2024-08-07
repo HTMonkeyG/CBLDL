@@ -538,7 +538,7 @@ scoreboard players operation ${Result(11)} @= ${Result(10)}
 
 # 7 语句
 ```
-<Statement> :
+<ChainStatement> :
   <Block>
   <VariableStatement>
   <EmptyStatement>
