@@ -38,8 +38,8 @@ class ASTNode {
    * @param {SimpleCompileErrorType|DynamicCompileErrorType} s 
    * @throws {CompileError}
    */
-  error(s) {
-    throw this.context ? s.createWithContext(this.context) : s.create()
+  error(s, ...arg) {
+    throw this.context ? s.createWithContext(this.context, ...arg) : s.create(...arg)
   }
   /** 
    * Assign a new label.
@@ -235,7 +235,8 @@ class Seq extends Stmt {
 class Break extends Stmt {
   constructor(context) {
     super(context);
-    if (Stmt.Enclosing == Stmt.Null) this.error("Unenclosed break");
+    if (Stmt.Enclosing == Stmt.Null)
+      this.error(CompileError.BuiltIn.invalidBreak);
     this.stmt = Stmt.Enclosing;
   }
 
@@ -256,32 +257,48 @@ class DelayH extends Stmt {
   constructor(context, x) {
     super(context);
     if (x.type != Type.Int)
-      this.error("Type error: Delay must be an integer.");
+      this.error(CompileError.BuiltIn.invalidDelay);
     var v = Expr.getConstValue(x);
     if (!v)
-      this.error("Reference error: Only constants can be used in delayh.");
+      this.error(CompileError.BuiltIn.invalidDelay);
     this.delay = v;
   }
   gen(b, a) { this.emitdelayh(this.delay) }
 }
 
+/**
+ * Delete statement
+ * 
+ * Syntatic sugar of `scorebaord players reset ...`
+ */
 class Delete extends Stmt {
   /**
-   * @param {Reference} x - Inteval in ticks
+   * 
+   * @param {Reference} x - Reference to reset
    */
   constructor(context, x) {
     super(context);
-    if (x.type != Type.Int)
-      this.error("Type error: Delay must be an integer.");
-    if (x.tag != ExprTag.CONST && x.tag != ExprTag.REF)
-      this.error("Syntax error");
-    if (x.tag == ExprTag.REF && !x.getConst())
-      this.error("Reference error: Only constants can be used in delayh.");
-    this.delay = x;
+    if (x.tag != ExprTag.GS && x.tag != ExprTag.REF)
+      this.error(CompileError.BuiltIn.invalidDelete);
+    if (x.tag == ExprTag.REF && x.getConst())
+      this.error(CompileError.BuiltIn.invalidDelete);
+    this.expr = x;
   }
 
   gen() {
-
+    this.emitvanilla(
+      new VanillaCmdTag(
+        this.context,
+        void 0,
+        new VaniCmdLiteral("scoreboard players reset ", TokenTag.VANICMDHEAD),
+        new VanillaCmdTag(
+          this.context,
+          this.expr,
+          new VaniCmdLiteral("", TokenTag.VANICMDTAIL),
+          void 0
+        )
+      )
+    )
   }
 }
 
@@ -407,9 +424,9 @@ class Reference extends Expr {
    */
   setValue(v) {
     if (!this.const)
-      this.error("Reference error: Try to init a variable as a const.");
+      this.error(CompileError.BuiltIn.invalidInitializer);
     if (v.tag != ExprTag.GS && v.tag != ExprTag.CONST && v.tag != ExprTag.SELECTOR)
-      this.error("Reference error: Can't init a const with an expression.");
+      this.error(CompileError.BuiltIn.invalidInitializer);
     this.type = v.type;
     this.value = v;
   }
@@ -417,7 +434,7 @@ class Reference extends Expr {
   getValue() {
     if (this.const) {
       if (!this.value)
-        this.error("Reference Error: Try to read uninited const.");
+        this.error(CompileError.BuiltIn.readUninit);
       return this.value;
     } else
       this.error("Reference Error: Try to read static value of a variable.")
@@ -519,7 +536,8 @@ class Arith extends Op {
     this.expr2 = x2;
     this.type = Type.max(x1.type, x2.type);
     this.tag = ExprTag.ARITH;
-    if (this.type == void 0) this.error("Type mismatch")
+    if (this.type == void 0)
+      this.error(CompileError.BuiltIn.OperationTypeError2, tok, x1.type, x2.type)
   }
 
   calc() {
@@ -572,8 +590,10 @@ class GetScore extends Op {
     this.scb = x2;
     this.type = Type.Vector;
     this.tag = ExprTag.GS;
-    if (x1.type != Type.String && x1.type != Type.Selector) this.error("Type error: Target must be a string or selector, received: " + x1.type.lexeme);
-    if (x2.type != Type.String) this.error("Type error: Scoreboard must be a string, recieved: " + x2.type.lexeme);
+    if (x1.type != Type.String && x1.type != Type.Selector)
+      this.error(CompileError.BuiltIn.targetTypeError, x1.type.lexeme);
+    if (x2.type != Type.String)
+      this.error(CompileError.BuiltIn.objTypeError, x2.type.lexeme);
   }
   genRightSide() { return new GetScore(this.context, this.op, this.target.reduce(this.tag), this.scb.reduce()) }
   toString() { return this.target.toString() + " " + this.scb.toString() }
@@ -606,7 +626,8 @@ class Unary extends Op {
     this.expr = x;
     this.type = Type.max(Type.Int, x.type);
     this.tag = ExprTag.UNARY;
-    if (this.type == void 0) this.error("Type mismatch")
+    if (this.type == void 0)
+      this.error(CompileError.BuiltIn.OperationTypeError1, tok, x.type);
   }
   genRightSide() {
     if (this.op == Word.minus)
@@ -673,8 +694,11 @@ class AssignExpr extends Expr {
   constructor(context, i, x) {
     super(context, void 0, x.type);
     this.id = i;
+    if (this.id.tag == ExprTag.REF && this.id.getConst())
+      this.error(CompileError.BuiltIn.assignToConst);
     this.expr = x;
-    if (this.check(i.type, x.type) == void 0) this.error("Type error: Type mismatch in assign");
+    if (this.check(i.type, x.type) == void 0)
+      this.error(CompileError.BuiltIn.OperationTypeError2, new Token('='), i.type, x.type);
     this.tag = ExprTag.ASSIGN
   }
   /** Type check */
@@ -730,7 +754,7 @@ class Prefix extends CompoundAssignExpr {
   constructor(context, i, op) {
     super(context, i, i, op);
     if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
-      this.error("Invalid left-hand side expression in prefix operation");
+      this.error(CompileError.BuiltIn.invalidPrefix);
     this.tag = ExprTag.PREF
   }
   genRightSide() { this.emitassign(this.id, this.op); return this.id }
@@ -752,7 +776,7 @@ class Postfix extends CompoundAssignExpr {
   constructor(context, i, op) {
     super(context, i, i, op);
     if (i.tag != ExprTag.REF && i.tag != ExprTag.GS)
-      this.error("Invalid left-hand side expression in postfix operation");
+      this.error(CompileError.BuiltIn.invalidPostfix);
     this.tag = ExprTag.POSTF
   }
   genRightSide() { this.emitassign(this.id, this.op); return this.id }

@@ -16,7 +16,7 @@ chain {
 
 /**
  * Block comment test
- * Test: chain pulse modifier 
+ * Test: All statements
  */
 chain pulse {
   var i, j;
@@ -24,6 +24,7 @@ chain pulse {
   i = @e -> "a";
   j = @e -> "a" + "e" -> "a";
   i = i - j * i % 10;
+  delete i;
   @e += "aaa";
   @a -= "bbb";
   `kill ${@e}`;
@@ -31,6 +32,7 @@ chain pulse {
   if (@e[type=bee]) `say j`;
   if (@e[tag=son] > 100) `say k`;
   i = i + 1;
+  delayh 10;
   j = i++ + --i + - - i;
   var k = (i++) + (i--) * (++i);
   var m = `say a`;

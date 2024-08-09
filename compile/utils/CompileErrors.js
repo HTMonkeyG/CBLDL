@@ -1,5 +1,5 @@
 class CompileError extends Error {
-  static ContextAmount = 10;
+  static ContextAmount = 20;
   static BuiltIn = null;
   static Code = {
     TypeError: 'Type Error',
@@ -48,7 +48,7 @@ class CompileError extends Error {
     if (offset > CompileError.ContextAmount)
       builder += "...";
 
-    builder += this.input.substring(this.ptr - Math.min(CompileError.ContextAmount, offset - 1), this.ptr);
+    builder += this.input.substring(this.ptr - Math.min(CompileError.ContextAmount, offset - 1), this.ptr).trim();
     builder += " <--[HERE]";
 
     return builder
@@ -84,12 +84,24 @@ class DynamicCompileErrorType {
 
 CompileError.BuiltIn = {
   invalidToken: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid or unexpected token"),
-  unexpectedToken: new DynamicCompileErrorType(CompileError.Code.SyntaxError, token => "Unexpected token '" + token + "'"),
-  notDeclared: new DynamicCompileErrorType(CompileError.Code.ReferenceError, token => token + " is not declared"),
+  unexpectedToken: new DynamicCompileErrorType(CompileError.Code.SyntaxError, token => "Unexpected token or identifier '" + token + "'"),
+  invalidInitializer: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid initializer in declaration"),
+  invalidBreak: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Illegal break statement"),
   missingInitializer: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Missing initializer in const declaration"),
   invalidAssign: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid left-hand side in assignment"),
   invalidPostfix: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid left-hand side expression in postfix operation"),
-  invalidPrefix: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid left-hand side expression in prefix operation")
-}
+  invalidPrefix: new SimpleCompileErrorType(CompileError.Code.SyntaxError, "Invalid left-hand side expression in prefix operation"),
+
+  invalidDelete: new SimpleCompileErrorType(CompileError.Code.ReferenceError, "Invalid expression in delete operation"),
+  invalidDelay: new SimpleCompileErrorType(CompileError.Code.ReferenceError, "Invalid expression in delayh operation"),
+  notDeclared: new DynamicCompileErrorType(CompileError.Code.ReferenceError, token => token + " is not declared"),
+  readUninit: new DynamicCompileErrorType(CompileError.Code.ReferenceError, token => "Cannot access " + token + " before initialization"),
+
+  assignToConst: new SimpleCompileErrorType(CompileError.Code.TypeError, "Assignment to constant variable"),
+  targetTypeError: new DynamicCompileErrorType(CompileError.Code.TypeError, token => "Target must be a string or selector, received: " + token),
+  objTypeError: new DynamicCompileErrorType(CompileError.Code.TypeError, token => "Objective must be a string or selector, received: " + token),
+  OperationTypeError1: new DynamicCompileErrorType(CompileError.Code.TypeError, (op, p1) => `Invalid operation '${op}' for type '${p1}'`),
+  OperationTypeError2: new DynamicCompileErrorType(CompileError.Code.TypeError, (op, p1, p2) => `Invalid operation '${op}' for type '${p1}' and '${p2}'`),
+};
 
 export { CompileError, SimpleCompileErrorType, DynamicCompileErrorType };

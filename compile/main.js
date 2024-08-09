@@ -29,8 +29,6 @@ function main() {
   ASTNode.parser = parse;
   try {
     parse.Program();
-    //console.log(parse.top)
-    //console.log(temp1 = parse.modules);
     temp1 = parse.modules;
 
     temp1[1].gen();

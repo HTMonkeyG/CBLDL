@@ -82,13 +82,9 @@ class Parser {
     this.look.context = new CompileContext(this.input, r.range, this.lexer, this);
   }
 
-  error(s, ...arg) {
-    throw s.createWithContext(this.look.context, ...arg);
-  }
+  error(s, ...arg) { throw s.createWithContext(this.look.context, ...arg) }
 
-  errorUnexp(t) {
-    this.error(CompileError.BuiltIn.unexpectedToken, (t ? t : this.look.tag))
-  }
+  errorUnexp(t) { this.error(CompileError.BuiltIn.unexpectedToken, t ? t : this.look + '') }
 
   match(t) {
     if (this.look.tag == t) this.move();
@@ -230,7 +226,7 @@ class Parser {
 
     // <VariableDeclaration> : <Identifier> <Initialiser>
     if (toplevel && this.test(["="]) && !p.isConst())
-      this.error("Top level variable declarations only avaliable without initial value.");
+      this.error(CompileError.BuiltIn.invalidInitializer);
 
     // <Initialiser> : = <AssignmentExpression>
     this.match("=");
@@ -381,6 +377,13 @@ class Parser {
         x = this.PrimaryExpression();
         this.match(";");
         return new DelayH(tok.context, x);
+
+      case TokenTag.DELETE:
+        this.move();
+        x = this.GetScoreExpression();
+        tok = this.look;
+        this.match(";");
+        return new Delete(tok.context, x);
 
       default:
         this.errorUnexp()
@@ -591,7 +594,7 @@ class Parser {
       if (x.op.tag == TokenTag.ID || x.op.tag == TokenTag.GS)
         return new Postfix(tok.context, x, tok);
       else
-      this.error(CompileError.BuiltIn.invalidPostfix);
+        this.error(CompileError.BuiltIn.invalidPostfix);
     } else
       // <PostfixExpression> : <LeftHandSideExpression>
       return x;
@@ -671,7 +674,6 @@ class Parser {
         if (c) { this.move(); return this.look; }
         var id = this.top.get(this.look);
         if (id == void 0)
-          //this.error(x + " is undeclared");
           this.error(CompileError.BuiltIn.notDeclared, x)
         this.move();
         return id;
