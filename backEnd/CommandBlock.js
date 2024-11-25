@@ -1,8 +1,8 @@
 class CB {
   static Type = {
     PULSE: 0,
-    CHAIN: 1,
-    REPEAT: 2
+    REPEAT: 1,
+    CHAIN: 2
   };
   static from(cmd, type) { return (new CB(cmd)).setType(type || CB.Type.CHAIN) }
   constructor(cmd) {

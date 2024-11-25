@@ -9,9 +9,13 @@ const ht = 实体 -> "6";
 // Test: chain keyword
 chain {
   `scoreboard players set ${c} 0`;
-  @p => execute(as 实体 at @s) {
+  var d = c++;
+  d = ++c;
+  /*@p => execute(as 实体 at @s) {
     initial => `kill ${实体}`;
-  };
+  };*/
+  @a => `say 666`;
+  initial => `say 777`;
 }
 
 /**

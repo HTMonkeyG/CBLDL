@@ -13,7 +13,11 @@ import { options } from "../utils/Option.js";
  * @extends Array
  */
 class TAC extends Array {
-  static Mode = { CP: 0, CR: 1, M: 2 };
+  static Mode = {
+    CP: 0,
+    CR: 1,
+    M: 2
+  };
 
   /**
    * @param {Number} m - Mode
@@ -61,9 +65,14 @@ class TAC extends Array {
       this.registerPool = RegisterPool.Global;
     else this.registerPool = new RegisterPool();
 
-    var state = new Temp(null, Type.Int);
-    this.registerPool.getRegFor(state);
-    this.chain.pushCB(`scoreboard players set ${state} 0`);
+    var state = null;
+
+    // Use state only when there is more than one baseblock present
+    if (this.length > 1) {
+      state = new Temp(null, Type.Int);
+      this.registerPool.getRegFor(state);
+      this.chain.pushCB(`scoreboard players set ${state} 0`);
+    }
 
     if (this.mode != TAC.Mode.M) {
       var delay = 0;
@@ -71,13 +80,13 @@ class TAC extends Array {
         delay = bb.gen(this.registerPool, state, delay || 0);
         this.chain = this.chain.concat(bb.chain);
       }
-    }
+    } else { }
 
-    this.registerPool.releaseRegFor(state);
+    state && this.registerPool.releaseRegFor(state);
 
-    if (this.mode == TAC.Mode.CP) {
-      this.chain[0].type = CB.Type.PULSE;
-    } else if (this.mode == TAC.Mode.CR) {
+    if (this.mode == TAC.Mode.CP)
+      this.chain[0].type = CB.Type.PULSE, this.chain[0].rsctl = true;
+    else if (this.mode == TAC.Mode.CR) {
       this.chain[0].type = CB.Type.REPEAT;
       this.chain[0].delay = this.totalDelay;
     }
@@ -108,12 +117,13 @@ class TACBaseBlock extends Array {
   gen(regPool, state, delay) {
     var delay_ = delay;
     this.chain = new CBSubChain();
-    for (var inst of this) {
+    for (var inst of this)
       delay_ = inst.gen(regPool, state, this.chain, this.id, delay_ || 0);
-    }
-    for (var cb of this.chain) {
-      cb.cmd = `execute if score ${state} matches ${this.id} run ${cb.cmd}`;
-    }
+
+    if (state)
+      for (var cb of this.chain)
+        cb.cmd = `execute if score ${state} matches ${this.id} run ${cb.cmd}`;
+
     return delay_
   }
 }

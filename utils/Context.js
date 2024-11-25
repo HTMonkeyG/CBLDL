@@ -14,7 +14,7 @@ class StringRange {
 
 class CompileContext {
   /**
-   * Context for tokens
+   * Context for tokens.
    * @param {String} input - Input string
    * @param {StringRange} range - Range of token
    * @param {Lexer} lexer

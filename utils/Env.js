@@ -32,21 +32,32 @@ class EntityLayer {
     IF: 10,
     UNLESS: 11
   };
+
   static Initial = new EntityLayer(null, null, null);
+
   /**
    * @param {EntityLayer|undefined} prev - Previous entity layer
    * @param {String} type - Current layer's type
    * @param {*} param - Current layer's param
    */
-  constructor(prev, type, param) { this.prev = prev; this.type = type; this.param = param }
+  constructor(prev, type, param) {
+    this.prev = prev;
+    this.type = type;
+    this.param = param
+  }
+
   withRoot(l) {
     for (var c = this; c.prev; c = c.prev)
-      if (l == c) throw new Error("Try to generate loop in entity layer")
+      if (l == c)
+        throw new Error("Try to generate loop in entity layer")
     return c.prev = l;
   }
+
   toString() {
-    if (!this.prev) return "";
-    return this.prev.toString() + " " + EntityLayer.Type[this.type] + " " + this.param;
+    var t = ["as", "at", "align", "anchored", "facing", "facing entity", "in", "rotated", "positioned", "positioned as", "if", "unless"];
+    if (!this.prev)
+      return "";
+    return this.prev.toString() + " " + t[this.type] + " " + this.param;
   }
 }
 

@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/HTMonkeyG/CBLDL#readme",
   "dependencies": {
-    "parsenbt-js": "^1.1.2"
+    "mcstructure-js": "^1.1.0",
+    "project-mirror-registry": "^1.1.1"
   }
 }

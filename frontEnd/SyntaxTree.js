@@ -25,14 +25,18 @@ import { CompileContext } from "../utils/Context.js";
 
 /** Abstract Syntax Tree Node */
 class ASTNode {
-  /** @param {CompileContext} context  */
+  static labels = 0;
+
+  /**
+   * @param {CompileContext} context  
+   */
   constructor(context) {
     //this.lexline = ASTNode.lexer && ASTNode.lexer.getLine();
     this.context = context || null;
     this.lexline = context ? context.lexer.getLine() : -1;
     this.labels = 0;
   }
-  static labels = 0;
+
   /**
    * Throw an error
    * @param {SimpleCompileErrorType|DynamicCompileErrorType} s 
@@ -50,48 +54,75 @@ class ASTNode {
    * Gen a label as TAC.
    * @param {TACLabel} i - Label 
    */
-  emitlabel(i) { ASTNode.parser.appendTAC(i) }
-  emit(s) { ASTNode.parser.append("\t" + s + "\n") }
+  emitlabel(i) {
+    ASTNode.parser.appendTAC(i)
+  }
+
   /**
    * Gen an if-goto.
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitif(t, l) { var i = new TACGoto(l, TACGoto.Type.IF, t); l.mark(i); ASTNode.parser.appendTAC(i) }
+  emitif(t, l) {
+    var i = new TACGoto(l, TACGoto.Type.IF, t);
+    l.mark(i);
+    ASTNode.parser.appendTAC(i)
+  }
+
   /**
    * Gen a direct goto.
    * @param {TACLabel} l - Label 
    */
-  emitgoto(l) { var i = new TACGoto(l); l.mark(i); ASTNode.parser.appendTAC(i) }
+  emitgoto(l) {
+    var i = new TACGoto(l);
+    l.mark(i);
+    ASTNode.parser.appendTAC(i)
+  }
+
   /**
    * Gen an iffalse-goto.
    * @param {Expr} t - Condition
    * @param {TACLabel} l - Label 
    */
-  emitiffalse(t, l) { var i = new TACGoto(l, TACGoto.Type.UNLESS, t); l.mark(i); ASTNode.parser.appendTAC(i) }
+  emitiffalse(t, l) {
+    var i = new TACGoto(l, TACGoto.Type.UNLESS, t);
+    l.mark(i); ASTNode.parser.appendTAC(i)
+  }
+
   /** 
    * Gen a TAC operation.
    * @param {Id | GetScore} i - Condition
    * @param {Expr} e - Expression
    */
-  emitassign(i, e) { ASTNode.parser.appendTAC(new TACAssign(i, e)) }
+  emitassign(i, e) {
+    ASTNode.parser.appendTAC(new TACAssign(i, e))
+  }
+
   /** 
    * Gen a TAC assigncomp.
    * @param {Id | GetScore} i - Condition
    * @param {Token} o - Operator
    * @param {Expr} e - Expression
    */
-  emitassigncomp(i, o, e) { ASTNode.parser.appendTAC(new TACAssign(i, e, o)) }
+  emitassigncomp(i, o, e) {
+    ASTNode.parser.appendTAC(new TACAssign(i, e, o))
+  }
+
   /** 
    * Gen a vanilla command.
    * @param {VanillaCmdNoTag} c - Command
    */
-  emitvanilla(c) { ASTNode.parser.appendTAC(new TACVanilla(c)) }
+  emitvanilla(c) {
+    ASTNode.parser.appendTAC(new TACVanilla(c))
+  }
+
   /** 
    * Gen a delay hard.
    * @param {NumericLiteral} t - Delay time
    */
-  emitdelayh(t) { ASTNode.parser.appendTAC(new TACDelayH(t)) }
+  emitdelayh(t) {
+    ASTNode.parser.appendTAC(new TACDelayH(t))
+  }
 }
 
 /** Statement implement. @extends ASTNode */
@@ -377,13 +408,16 @@ class Expr extends Stmt {
     if (t != 0 && f != 0) {
       this.emitif(test, t);
       this.emitgoto(f)
-    }
-    else if (t != 0) this.emitif(test, t);
-    else if (f != 0) this.emitiffalse(test, f);
-    else; // t & f directly cross, no instruction generating.
+    } else if (t != 0)
+      this.emitif(test, t);
+    else if (f != 0)
+      this.emitiffalse(test, f);
+    // t & f directly cross, no instruction generating.
   }
 
-  toString() { return this.op.toString() }
+  toString() {
+    return this.op.toString()
+  }
 
   /**
    * Try to get a primitive value from Expr node.
@@ -452,14 +486,21 @@ class Reference extends Expr {
   }
 
   getReg() {
-    if (this.const || this.reg) return;
-    else return this.reg
+    if (this.const || this.reg)
+      return;
+    else
+      return this.reg
   }
 
   /** 
    * @param {Boolean} s - Return string literal if true
    */
-  toString(s) { if (!s) return this.reg.toString(); else return this.op.toString() }
+  toString(s) {
+    if (!s)
+      return this.reg.toString();
+    else
+      return this.op.toString()
+  }
 }
 
 /** Identifier implement. @extends Reference */
@@ -474,8 +515,17 @@ class Id extends Reference {
     super(context, id, p, c);
     this.offset = b;
   }
-  genRightSide() { if (this.const) return this.value; else return this }
-  reduce() { return this.genRightSide() }
+
+  genRightSide() {
+    if (this.const)
+      return this.value;
+    else
+      return this
+  }
+
+  reduce() {
+    return this.genRightSide()
+  }
 }
 
 /** Temp variable implement. @extends Reference */
@@ -487,7 +537,13 @@ class Temp extends Reference {
     super(context, Word.temp, p, p.isConst());
     this.number = ++Temp.count;
   }
-  toString(s) { if (!s) return this.reg.toString(); else return "t" + this.number }
+
+  toString(s) {
+    if (!s)
+      return this.reg.toString();
+    else
+      return "t" + this.number
+  }
 }
 
 /** Expression with an operator. @extends Expr */
@@ -496,7 +552,10 @@ class Op extends Expr {
    * @param {Token} tok - Token of the operator
    * @param {Type} p - Type of the expression
    */
-  constructor(context, tok, p) { super(context, tok, p) }
+  constructor(context, tok, p) {
+    super(context, tok, p)
+  }
+
   reduce(a) {
     var x = this.genRightSide()
       , t = new Temp(this.context, this.type);
@@ -694,13 +753,14 @@ class AssignExpr extends Expr {
   constructor(context, i, x) {
     super(context, void 0, x.type);
     this.id = i;
-    if (this.id.tag == ExprTag.REF && this.id.getConst())
+    if (this.id.tag == ExprTag.REF && this.id.getConst() && this.id.type != Type.Vector)
       this.error(CompileError.BuiltIn.assignToConst);
     this.expr = x;
     if (this.check(i.type, x.type) == void 0)
       this.error(CompileError.BuiltIn.OperationTypeError2, new Token('='), i.type, x.type);
     this.tag = ExprTag.ASSIGN
   }
+
   /** Type check */
   check(l, r) {
     if (l == r) return r;
@@ -711,7 +771,11 @@ class AssignExpr extends Expr {
     else if (l == Type.Selector && r == Type.String) return Type.Selector;
     else return void 0
   }
-  gen() { this.genRightSide() }
+
+  gen() {
+    this.genRightSide()
+  }
+
   genRightSide() {
     if (this.id.type == Type.Int || this.id.tag == ExprTag.GS) {
       this.emitassign(this.id, this.expr.genRightSide());
@@ -720,8 +784,14 @@ class AssignExpr extends Expr {
       return this.id.value = this.expr.genRightSide();
     }
   }
-  toString() { return this.id.toString() + " = " + this.expr.toString() }
-  reduce() { return this.genRightSide() }
+
+  toString() {
+    return this.id.toString() + " = " + this.expr.toString()
+  }
+
+  reduce() {
+    return this.genRightSide()
+  }
 }
 
 /** Compound assignment implement. @extends AssignExpr */
@@ -731,7 +801,12 @@ class CompoundAssignExpr extends AssignExpr {
    * @param {Expr} x - Right-hand-side expression
    * @param {Token} op - Operator
    */
-  constructor(context, i, x, op) { super(context, i, x); this.op = op; this.tag = ExprTag.ASSICOMP }
+  constructor(context, i, x, op) {
+    super(context, i, x);
+    this.op = op;
+    this.tag = ExprTag.ASSICOMP
+  }
+
   genRightSide() {
     var x;
     if (this.id.type == Type.Selector && this.expr.type == Type.String) {
@@ -745,7 +820,10 @@ class CompoundAssignExpr extends AssignExpr {
   }
 }
 
-/** Prefix expression implement. @extends CompoundAssignExpr */
+/**
+ * Prefix expression implement.
+ * @extends CompoundAssignExpr
+ */
 class Prefix extends CompoundAssignExpr {
   /**
    * @param {Token} i - Identifier to be assigned
@@ -757,15 +835,16 @@ class Prefix extends CompoundAssignExpr {
       this.error(CompileError.BuiltIn.invalidPrefix);
     this.tag = ExprTag.PREF
   }
-  genRightSide() { this.emitassign(this.id, this.op); return this.id }
+
+  genRightSide() {
+    var i = this.id.reduce();
+    this.emitassign(i, this.op);
+    return i
+  }
 }
 
 /** 
  * Postfix expression implement.
- * 
- * Statement i++ behaves the same as ++i:
- * 
- * Add 1 to i, then return the value of i.
  * @extends CompoundAssignExpr
  */
 class Postfix extends CompoundAssignExpr {
@@ -779,7 +858,13 @@ class Postfix extends CompoundAssignExpr {
       this.error(CompileError.BuiltIn.invalidPostfix);
     this.tag = ExprTag.POSTF
   }
-  genRightSide() { this.emitassign(this.id, this.op); return this.id }
+
+  genRightSide() {
+    var t = new Temp(this.context, Type.Int), i = this.id.reduce();
+    this.emitassign(t, i);
+    this.emitassign(i, this.op);
+    return t
+  }
 }
 
 /** Selector implement. @extends Expr */
@@ -787,7 +872,11 @@ class Selector extends Expr {
   /**
    * @param {Token} tok - Token of selector
    */
-  constructor(context, tok) { super(context, tok, Type.Selector); this.tag = ExprTag.SELECTOR }
+  constructor(context, tok) {
+    super(context, tok, Type.Selector);
+    this.tag = ExprTag.SELECTOR
+  }
+
   /**
    * @param {Boolean} a - Only GetScore & VaniCmd uses this param.
    * 
@@ -804,7 +893,10 @@ class Selector extends Expr {
       return t
     }
   }
-  jumping(t, f) { this.emitjumps(this, t, f) }
+
+  jumping(t, f) {
+    this.emitjumps(this, t, f)
+  }
 }
 
 /** Logical expression implement. @extends Expr */
@@ -943,9 +1035,22 @@ class VanillaCmdNoTag extends Expr {
   /**
    * @param {Token} tok - Token of vanilla command
    */
-  constructor(context, tok) { super(context, tok, Type.Bool); this.cmd = tok; this.tag = ExprTag.VANICMD }
-  gen() { this.emitvanilla(this.cmd.toString()) }
-  toString() { return this.cmd.toString() }
+  constructor(context, tok) {
+    super(context, tok, Type.Bool);
+    this.cmd = tok;
+    this.tag = ExprTag.VANICMD
+  }
+  gen(b, a, l) {
+    if (l != EntityLayer.Initial)
+      this.emitvanilla("execute" + l + " run " + this.cmd.toString());
+    else
+      this.emitvanilla(this.cmd.toString());
+  }
+
+  toString() {
+    return this.cmd.toString()
+  }
+
   genRightSide() {
     var f = this.newlabel()
       , a = this.newlabel()
@@ -958,7 +1063,10 @@ class VanillaCmdNoTag extends Expr {
     this.emitlabel(a);
     return temp
   }
-  reduce() { return this.genRightSide() }
+
+  reduce() {
+    return this.genRightSide()
+  }
 }
 
 /**
@@ -980,8 +1088,15 @@ class VanillaCmdTag extends Expr {
     this.next = next;
     this.tag = ExprTag.VANICMD
   }
-  gen() { this.emitvanilla(this.reduceAll()) }
-  jumping(t, f) { this.emitjumps(this.reduceAll(), t, f) }
+
+  gen() {
+    this.emitvanilla(this.reduceAll())
+  }
+
+  jumping(t, f) {
+    this.emitjumps(this.reduceAll(), t, f)
+  }
+
   toString() {
     var r = "";
     if (this.expr)
@@ -991,6 +1106,7 @@ class VanillaCmdTag extends Expr {
       r += this.next.toString();
     return r
   }
+
   genRightSide() {
     var f = this.newlabel()
       , a = this.newlabel()
@@ -1003,14 +1119,19 @@ class VanillaCmdTag extends Expr {
     this.emitlabel(a);
     return temp
   }
+
   /** Reduce all expressions the vanilla cmd contains */
   reduceAll() {
     var x, t;
-    if (this.expr) x = this.expr.reduce(this.tag);
+    if (this.expr)
+      x = this.expr.reduce(this.tag);
     t = this.next ? this.next.reduceAll() : void 0;
     return new VanillaCmdTag(this.context, x, this.op, t)
   }
-  reduce() { return this.genRightSide() }
+
+  reduce() {
+    return this.genRightSide()
+  }
 }
 
 export {

@@ -1,4 +1,4 @@
 antlr*
 build*
 compile_origin*
-compile/node_modules*
+node_modules*

@@ -60,11 +60,15 @@ import { CompileError, SimpleCompileErrorType, DynamicCompileErrorType } from ".
 
 class Parser {
   constructor(str) {
-    this.input = str.replace(/\r\n?/g, "\n"); // Normalize line feeding
+    // Normalize line feeding
+    this.input = str.replace(/\r\n?/g, "\n");
     this.lexer = new Lexer(this.input);
-    this.look = null; // Lexer unit
-    this.used = 0; // Uid of variable
-    this.top = new SymbolTable(null); // Current symbol table
+    // Lexer unit
+    this.look = null;
+    // Uid of variable
+    this.used = 0;
+    // Current symbol table
+    this.top = new SymbolTable(null);
     this.topEL = EntityLayer.Initial;
     this.done = !1;
     this.result = "";
@@ -321,7 +325,7 @@ class Parser {
         this.match(TokenTag.EXECUTE);
         savedEL = this.topEL;
         this.match('(');
-        this.topEL = this.executeSubcommands();
+        this.topEL = this.ExecuteSubcommandList();
         this.match(')');
         s1 = new ExecuteStmt(tok.context, this.topEL, this.CPStmt());
         this.topEL = savedEL;
@@ -553,7 +557,7 @@ class Parser {
 
   /**
    * Unary expression
-   * @returns {Expr}
+   * @returns {Unary|Not|Prefix}
    */
   UnaryExpression() {
     var tok = this.look;
@@ -683,6 +687,10 @@ class Parser {
     }
   }
 
+  /**
+   * Parse VanillaCommand with tag inside.
+   * @returns {VanillaCmdTag}
+   */
   VanillaCommandWithTag() {
     var x = this.AssignmentExpression(), t = this.look;
     this.move();
@@ -693,7 +701,7 @@ class Parser {
     this.errorUnexp();
   }
 
-  executeSubcommands() {
+  ExecuteSubcommandList() {
     var t1 = this.look, t2 = this.topEL;
     while (this.look.tag !== ")") {
       this.match(TokenTag.ID);
@@ -717,8 +725,13 @@ class Parser {
    * Parses subcommand with single param: 
    * 
    * Subcomands: as at anchored align in
+   * 
+   * @param {EntityLayer} prev - Last entity layer
+   * @param {Number} type - Entity layer type
    */
-  executeSimplePayload(prev, type) { return new EntityLayer(prev, type, this.look) }
+  executeSimplePayload(prev, type) {
+    return new EntityLayer(prev, type, this.look)
+  }
 
   executeFacing() { }
 
