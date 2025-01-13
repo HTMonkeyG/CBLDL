@@ -18,7 +18,7 @@ import { StringRange } from "../utils/Context.js";
 function Lexer(s) {
   function readNext() {
     offsetInLine++;
-    if (ptr > str.length) throw new Error("String Ends");
+    if (ptr > strArr.length) throw new Error("String Ends");
     return strArr[++ptr]
   }
 

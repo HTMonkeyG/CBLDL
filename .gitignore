@@ -2,3 +2,4 @@ antlr*
 build*
 compile_origin*
 node_modules*
+*.mcstructure
