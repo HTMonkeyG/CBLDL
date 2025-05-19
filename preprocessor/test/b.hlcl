@@ -1,8 +1,0 @@
-#include "./a.hlcl"
-
-#define A 0
-#define B 1
-
-chain aaa pulse {
-  666;
-}

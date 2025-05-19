@@ -1,5 +1,15 @@
-antlr*
-build*
-compile_origin*
-node_modules*
+# Folder names
+antlr/
+build/
+compile_origin/
+node_modules/
+test/
+
+# File names
+
+
+# Wildcard folders
+*/test/
+
+# Wildcard files
 *.mcstructure

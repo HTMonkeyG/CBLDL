@@ -12,5 +12,10 @@ class PreprocessWarning extends Error {
   }
 }
 
+const PreprocessBuiltinErrors = {
+  
+};
+
 exports.PreprocessError = PreprocessError;
 exports.PreprocessWarning = PreprocessWarning;
+exports.PreprocessBuiltinErrors = PreprocessBuiltinErrors;

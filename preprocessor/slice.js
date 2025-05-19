@@ -17,11 +17,11 @@ class FileSlice {
   }
 
   /**
-   * @param {String} file - File Path.
-   * @param {String} content - Original file content.
-   * @param {Number} start - Slice start position in the file, in lines.
-   * @param {Number} line - Slice size, in lines.
-   * @param {FileSlice} next - Next slice.
+   * @param {string} file - File Path.
+   * @param {string} content - Original file content.
+   * @param {number} start - Slice start position in the file, in lines.
+   * @param {number} [line] - Slice size, in lines.
+   * @param {FileSlice} [next] - Next slice.
    * @returns {FileSlice}
    */
   static fromFile(file, content, start, line, next) {
@@ -29,7 +29,10 @@ class FileSlice {
     result.completeFile = content;
     result.file = file;
     // We assume that the comments in the file is replaced with empty lines.
-    result.content = content.split("\n").slice(start, start + line).join("\n");
+    if (typeof line == "undefined")
+      result.content = content;
+    else
+      result.content = content.split("\n").slice(start, start + line).join("\n");
     result.size = line;
     result.parentLine = start;
     result.next = next || null;
@@ -52,7 +55,8 @@ class FileSlice {
   }
 
   /**
-   * @param {Number} start - Start line.
+   * Insert a `FileSlice` object.
+   * @param {number} start - Start line.
    * @param {FileSlice} inserted - The `FileSlice` object to be inserted.
    * @returns {FileSlice}
    */
@@ -86,6 +90,22 @@ class FileSlice {
         s.next = result;
         break
       }
+    return this
+  }
+
+  /**
+   * Replace lines with empty line.
+   * @param {number} line 
+   * @param {number} [count] 
+   * @returns {FileSlice}
+   */
+  clear(line, count) {
+    var content = this.content.split("\n");
+    count = count || 1;
+    for (var i = line; i < line + count; i++)
+      if (typeof content[i] == "string")
+        content[i] = "";
+    this.content = content.join("\n");
     return this
   }
 

@@ -1,3 +1,5 @@
+const FileSlice = require("./slice.js");
+
 class PreprocessToken {
   static Type = {
     Token: 0,
@@ -6,12 +8,13 @@ class PreprocessToken {
     String: 3
   };
 
-  constructor(type, content, begin, end, line) {
+  constructor(type, content, begin, end, file, line) {
     this.type = type;
     this.content = content;
     this.begin = begin;
     this.end = end;
     this.line = line;
+    this.file = file;
   }
 
   toString() {
@@ -21,13 +24,20 @@ class PreprocessToken {
 
 class PreprocessLexer {
   static getLineOf(lexer, line) {
-    return lexer.original.split("\n")[line - 1]
+    return lexer.original.split("\n")[line]
   }
 
+  /**
+   * @param {FileSlice|string} input 
+   */
   constructor(input) {
+    if (!(input instanceof FileSlice))
+      input = FileSlice.fromFile("", input, 0);
+
     this.original = input;
+    this.currentFile = input;
     // Convert input to an char array, in order to support unicode.
-    this.input = Array.from(input);
+    this.string = Array.from(this.currentFile.content);
     this.line = this.offsetInLine = 0;
     this.cursor = -1;
     this.readingVaniCmd = 0;
@@ -37,11 +47,18 @@ class PreprocessLexer {
   }
 
   buildToken(type, content) {
-    return new PreprocessToken(type, content, this.begin, this.begin + content.length, this.line)
+    return new PreprocessToken(
+      type,
+      content,
+      this.begin,
+      this.begin + content.length,
+      this.currentFile.file,
+      this.line + this.currentFile.parentLine
+    )
   }
 
   done() {
-    return this.cursor >= this.input.length
+    return this.cursor >= this.string.length && !this.currentFile.next
   }
 
   isUnquotedStringStart() {
@@ -57,9 +74,18 @@ class PreprocessLexer {
   }
 
   readch(c) {
+    if (this.cursor >= this.string.length && this.currentFile.next) {
+      // Switch to next file.
+      this.currentFile = this.currentFile.next;
+      this.cursor = -1;
+      this.line = this.offsetInLine = 0;
+      this.peek = " ";
+      this.string = Array.from(this.currentFile.content);
+    }
+
     if (!this.done()) {
       this.cursor++;
-      this.peek = this.input[this.cursor];
+      this.peek = this.string[this.cursor];
       if (this.peek != c)
         return false;
       this.peek = " ";

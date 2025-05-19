@@ -22,7 +22,7 @@ class Include {
 
 /**
  * Discard comments and replace them with an equal number of blank lines.
- * @param {String} input - Input content.
+ * @param {string} input - Input content.
  */
 function discardComment(input) {
   var state = 0
@@ -59,9 +59,10 @@ function discardComment(input) {
 
 /**
  * Process `#include` statement.
- * @param {String} input - Input content processed by `discardComment()`.
- * @param {String[]} paths - Include paths.
- * @param {Number} nesting - Nesting count.
+ * @param {FileSlice} input - Input content processed by `discardComment()`.
+ * @param {string[]} paths - Include paths.
+ * @param {number} nesting - Nesting count.
+ * @returns {FileSlice}
  */
 function processInclude(input, paths, nesting) {
   function move() {
@@ -79,41 +80,40 @@ function processInclude(input, paths, nesting) {
   }
 
   var lexer = new PreprocessLexer(input)
-    , result = new Include()
-    , look, filePath, include;
+    , result = FileSlice.copy(input)
+    , look, last, filePath, file;
 
   nesting = nesting || 0;
   if (nesting > 128)
-    throw new PreprocessError();
+    throw new PreprocessError("Nesting overflow.");
   paths.unshift("./");
-  result.content = input;
   move();
   while (look) {
     if (look.type == PreprocessToken.Type.Hash && look.content == "#include") {
+      last = look;
       move();
-      if (look.type == PreprocessToken.Type.String) {
+      // File name and `#include` must in the same line.
+      if (look.type == PreprocessToken.Type.String && look.line == last.line) {
         // Remove the quotes.
         filePath = look.content.slice(1, look.content.length - 1);
         // Find the included file in the paths.
         filePath = lookForFile(filePath);
         if (!filePath)
-          throw new PreprocessError();
+          throw new PreprocessError("File not found.");
 
-        include = FileSlice.fromFile(
+        // Replace `#include` statement with the given file.
+        result.clear(look.line);
+        file = FileSlice.fromFile(
           filePath,
-          fs.readFileSync(filePath, "utf-8"),
-          
-        )
-        
-        include = new Include(
-          filePath,
-          fs.readFileSync(filePath, "utf-8"),
-          look.line
+          discardComment(fs.readFileSync(filePath, "utf-8")),
+          0
         );
-        include.includes = processInclude(include.content, paths, nesting + 1).includes;
-        result.includes.push(include)
+        result.insert(
+          look.line,
+          processInclude(file, paths, nesting + 1)
+        )
       } else
-        throw new PreprocessError();
+        throw new PreprocessError("Unexpected token.");
     }
     move();
   }
@@ -152,6 +152,15 @@ class PreprocessParser {
   }
 }
 
-console.log(processInclude(fs.readFileSync("./preprocessor/test/a.hlcl", "utf-8"), ["./preprocessor/test"]).gen())
+console.log(
+  processInclude(
+    FileSlice.fromFile(
+      "./preprocessor/test/a.hlcl",
+      discardComment(fs.readFileSync("./preprocessor/test/a.hlcl", "utf-8")),
+      0
+    )
+    , ["./preprocessor/test"]
+  ) + ""
+)
 
 module.exports = PreprocessParser;
