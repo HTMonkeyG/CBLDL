@@ -20,7 +20,13 @@ class PreprocessToken {
 }
 
 class PreprocessLexer {
+  static getLineOf(lexer, line) {
+    return lexer.original.split("\n")[line - 1]
+  }
+
   constructor(input) {
+    this.original = input;
+    // Convert input to an char array, in order to support unicode.
     this.input = Array.from(input);
     this.line = this.offsetInLine = 0;
     this.cursor = -1;
@@ -79,13 +85,19 @@ class PreprocessLexer {
     }
   }
 
+  /**
+   * Scan next token.
+   * @returns 
+   */
   scan() {
     this.skipWhitespace();
     if (this.done())
       return void 0;
 
+    // Start reading, record current cursor.
     this.begin = this.cursor;
 
+    // Read tokens.
     switch (this.peek) {
       case '&':
         if (this.readch('&'))
@@ -140,35 +152,46 @@ class PreprocessLexer {
           return this.buildToken(0, "%=");
         return this.buildToken(0, '%');
     }
+    // Read identifier.
     if (this.isUnquotedStringStart()) {
       var b = this.readStringUnquoted();
       return this.buildToken(1, b);
     }
+    // Read number.
     if (/\d/.test(this.peek))
       return this.buildToken(0, this.readNumber());
+    // Read connector `##` in macro or preprocessor statement.
     if (this.peek == "#") {
       if (this.readch("#"))
         return this.buildToken(0, "##");
       return this.buildToken(this.isFirstInLine ? 2 : 0, "#" + this.readStringUnquoted())
     }
+    // Read vanilla Minecraft command literal.
     if (this.peek == "`" && !this.readingVaniCmd)
       return this.buildToken(0, this.readVaniCmd());
     if (this.peek == "}" && this.readingVaniCmd)
       return this.buildToken(0, this.readVaniCmd());
+    // Read string literal.
     if (this.peek == '"')
       return this.buildToken(3, "\"" + this.readStringUntil('"') + "\"");
+    // Read selector literal.
     if (this.peek == '@')
       return this.buildToken(0, "@" + this.readStringUnquoted());
     if (this.done())
       return Token.EOF;
+    // Unknown token.
     var t = this.buildToken(0, this.peek);
     this.peek = " ";
     this.isFirstInLine = 0;
     return t
   }
 
+  /**
+   * Implements JS iterator.
+   * @returns
+   */
   next() {
-    var d = this.done()
+    var d = this.done();
     return {
       value: this.scan(),
       done: d

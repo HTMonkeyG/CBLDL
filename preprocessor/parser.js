@@ -21,8 +21,7 @@ class Include {
 }
 
 /**
- * Discard comments and replace them with
- * an equal number of blank lines.
+ * Discard comments and replace them with an equal number of blank lines.
  * @param {String} input - Input content.
  */
 function discardComment(input) {
@@ -36,7 +35,7 @@ function discardComment(input) {
   // Replace single line comments.
   input = input.replace(/\/\/.*\r?\n/g, "\n");
 
-  // Replace block comments.
+  // Replace block comments to empty lines.
   while (cursor < input.length) {
     if (!state && input[cursor] == "/" && input[cursor + 1] == "*") {
       state = 1;
@@ -59,8 +58,8 @@ function discardComment(input) {
 }
 
 /**
- * Process #include statement.
- * @param {String} input - Input content processed by discardComment()
+ * Process `#include` statement.
+ * @param {String} input - Input content processed by `discardComment()`.
  * @param {String[]} paths - Include paths.
  * @param {Number} nesting - Nesting count.
  */
@@ -81,7 +80,7 @@ function processInclude(input, paths, nesting) {
 
   var lexer = new PreprocessLexer(input)
     , result = new Include()
-    , look, file, include;
+    , look, filePath, include;
 
   nesting = nesting || 0;
   if (nesting > 128)
@@ -93,13 +92,22 @@ function processInclude(input, paths, nesting) {
     if (look.type == PreprocessToken.Type.Hash && look.content == "#include") {
       move();
       if (look.type == PreprocessToken.Type.String) {
-        file = look.content.slice(1, look.content.length - 1);
-        file = lookForFile(file);
-        if (!file)
-          throw new Error();
+        // Remove the quotes.
+        filePath = look.content.slice(1, look.content.length - 1);
+        // Find the included file in the paths.
+        filePath = lookForFile(filePath);
+        if (!filePath)
+          throw new PreprocessError();
+
+        include = FileSlice.fromFile(
+          filePath,
+          fs.readFileSync(filePath, "utf-8"),
+          
+        )
+        
         include = new Include(
-          file,
-          fs.readFileSync(file, "utf-8"),
+          filePath,
+          fs.readFileSync(filePath, "utf-8"),
           look.line
         );
         include.includes = processInclude(include.content, paths, nesting + 1).includes;
