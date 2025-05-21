@@ -19,13 +19,14 @@ class FileSlice {
   /**
    * @param {string} file - File Path.
    * @param {string} content - Original file content.
-   * @param {number} start - Slice start position in the file, in lines.
+   * @param {number} [start] - Slice start position in the file, in lines.
    * @param {number} [line] - Slice size, in lines.
    * @param {FileSlice} [next] - Next slice.
    * @returns {FileSlice}
    */
   static fromFile(file, content, start, line, next) {
     var result = new FileSlice();
+    start = start || 0;
     result.completeFile = content;
     result.file = file;
     // We assume that the comments in the file is replaced with empty lines.
@@ -55,7 +56,25 @@ class FileSlice {
   }
 
   /**
-   * Insert a `FileSlice` object.
+   * Get the specified line in the complete file.
+   * @param {number} line 
+   */
+  getParentLine(line) {
+    var content = this.completeFile.split("\n");
+    return content.at(line);
+  }
+
+  /**
+   * Get the specified line in the current slice.
+   * @param {number} line 
+   */
+  getLine(line) {
+    var content = this.content.split("\n");
+    return content.at(line);
+  }
+
+  /**
+   * Insert a `FileSlice` object before the specified line.
    * @param {number} start - Start line.
    * @param {FileSlice} inserted - The `FileSlice` object to be inserted.
    * @returns {FileSlice}
@@ -66,12 +85,12 @@ class FileSlice {
       , newLines = content.slice(start)
       , result, s;
 
-    if (!newLines) {
+    if (!newLines.length) {
       // `start` is larger than the file size. Set `this.next` only.
       inserted.next = this.next;
       this.next = inserted;
       return
-    } else if (!oldLines) {
+    } else if (!oldLines.length) {
       // Current slice is completely replaced by a copy of `inserted`.
       result = FileSlice.copy(this);
       FileSlice.copy(inserted, this);
@@ -95,7 +114,7 @@ class FileSlice {
 
   /**
    * Replace lines with empty line.
-   * @param {number} line 
+   * @param {number} line - Line number in current slice.
    * @param {number} [count] 
    * @returns {FileSlice}
    */

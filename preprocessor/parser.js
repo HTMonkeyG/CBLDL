@@ -1,31 +1,16 @@
-const fs = require("fs")
-  , pl = require("path")
+const pl = require("path")
   , { PreprocessLexer, PreprocessToken } = require("./lexer.js")
-  , { PreprocessWarning, PreprocessError } = require("./exceptions.js")
+  , { PreprocessContext, BuiltinPreprocessError } = require("./errors.js")
+  , FileInterface = require("./file.js")
   , FileSlice = require("./slice.js");
-
-class Include {
-  constructor(file, content, parentLine) {
-    this.file = file || "";
-    this.content = content || "";
-    this.parentLine = parentLine || 0;
-    this.includes = [];
-  }
-
-  gen() {
-    var r = this.content.split("\n");
-    for (var i = this.includes.length - 1; i >= 0; i--)
-      r[this.includes[i].parentLine] = this.includes[i].gen();
-    return r.join("\n")
-  }
-}
 
 /**
  * Discard comments and replace them with an equal number of blank lines.
- * @param {string} input - Input content.
+ * @param {FileSlice} file - Input file.
  */
-function discardComment(input) {
-  var state = 0
+function discardComment(file) {
+  var input = file.content
+    , state = 0
     , line = ""
     , cursor = 0
     , result = "";
@@ -54,80 +39,137 @@ function discardComment(input) {
     cursor++;
   }
 
-  return result
+  file.content = result;
+
+  return file
 }
 
 /**
- * Process `#include` statement.
+ * Process `#include` statement, combine the included files to a single
+ * `FileSlice` object.
  * @param {FileSlice} input - Input content processed by `discardComment()`.
  * @param {string[]} paths - Include paths.
+ * @param {FileInterface} fileInterface - File accessor.
  * @param {number} nesting - Nesting count.
- * @returns {FileSlice}
+ * @returns
  */
-function processInclude(input, paths, nesting) {
+function processInclude(input, paths, fileInterface, nesting) {
   function move() {
     look = lexer.scan()
   }
 
   function lookForFile(f) {
+    // Find given file through FileInterface.
     for (var p of paths) {
       p = pl.join(p, f);
-      if (!fs.existsSync(p) || fs.statSync(p).isDirectory())
+      if (!fileInterface.existSync(p))
         continue;
       return p
     }
     return void 0
   }
 
+  function seek(f) {
+    for (; ; f = f.next)
+      if (!f.next)
+        return f
+  }
+
   var lexer = new PreprocessLexer(input)
+    // The processed FileSlice chain.
     , result = FileSlice.copy(input)
-    , look, last, filePath, file;
+    // The FileSlice contains the remain part of input file.
+    , remain = result
+    , errors = []
+    , look, last, filePath, foundFile, file
+    , combineResult, e;
 
   nesting = nesting || 0;
-  if (nesting > 128)
-    throw new PreprocessError("Nesting overflow.");
   paths.unshift("./");
-  move();
-  while (look) {
-    if (look.type == PreprocessToken.Type.Hash && look.content == "#include") {
-      last = look;
-      move();
-      // File name and `#include` must in the same line.
-      if (look.type == PreprocessToken.Type.String && look.line == last.line) {
-        // Remove the quotes.
-        filePath = look.content.slice(1, look.content.length - 1);
-        // Find the included file in the paths.
-        filePath = lookForFile(filePath);
-        if (!filePath)
-          throw new PreprocessError("File not found.");
+  for (move(); look; move()) {
+    // Preprocess statement must be the first token of a line.
+    if (look.type != PreprocessToken.Type.HASH || look.content != "#include" || !look.first)
+      continue;
 
-        // Replace `#include` statement with the given file.
-        result.clear(look.line);
-        file = FileSlice.fromFile(
-          filePath,
-          discardComment(fs.readFileSync(filePath, "utf-8")),
-          0
-        );
-        result.insert(
-          look.line,
-          processInclude(file, paths, nesting + 1)
-        )
-      } else
-        throw new PreprocessError("Unexpected token.");
-    }
+    // Restore the `#include` token, and scan next one.
+    last = look;
     move();
+
+    // File name and `#include` must in the same line.
+    if (look.type != PreprocessToken.Type.STRING) {
+      // Encountered unexpected token, skip current line.
+      errors.push(BuiltinPreprocessError.UNEXPECTED.create(new PreprocessContext(look, lexer), look));
+      lexer.skipLine();
+      continue
+    } else if (look.line != last.line) {
+      errors.push(BuiltinPreprocessError.UNEXPECTED_LF.create(new PreprocessContext(look, lexer)));
+      continue
+    }
+
+    // Remove the quotes.
+    filePath = look.content.slice(1, look.content.length - 1);
+    // Find the included file in the paths.
+    foundFile = lookForFile(filePath);
+
+    if (nesting > 15) {
+      // If nesting overflowed, instantly stop processing.
+      errors.push(BuiltinPreprocessError.NESTING_OVF.create(new PreprocessContext(last, lexer)));
+      break
+    }
+    if (!foundFile) {
+      // If file not found, skip this `#include`.
+      errors.push(BuiltinPreprocessError.NOT_FOUND.create(new PreprocessContext(look, lexer), filePath));
+      continue
+    }
+
+    // Replace `#include` statement with the given file.
+    remain.clear(look.line - remain.parentLine);
+    file = discardComment(FileSlice.fromFile(filePath, fileInterface.readFileSync(foundFile)));
+    combineResult = processInclude(file, paths, nesting + 1);
+
+    // Insert the included file to the input.
+    remain.insert(
+      // Insert after the empty line replaced `#include`.
+      look.line + 1 - remain.parentLine,
+      combineResult.value
+    );
+    errors = errors.concat(combineResult.errors);
+    e = combineResult.errors.at(-1);
+    if (e && e.type == BuiltinPreprocessError.NESTING_OVF)
+      // If the nesting overflow is firstly thrown in the file just processed,
+      // it will be the last error in the array. We need to instantly stop
+      // processing when the overflow is encountered.
+      break;
+    // After the insert operation, the remain part will be pushed to the last
+    // FileSlice in the chain. So we need to seek to the remain part.
+    remain = seek(remain);
   }
-  return result
+
+  return {
+    value: result,
+    errors: errors
+  }
 }
 
 class PreprocessParser {
-  constructor(input) {
-    this.input = discardComment(input);
+  static processInclude = processInclude;
+  static discardComment = discardComment;
+
+  /**
+   * @param {FileSlice} fileSlice 
+   * @param {string[]} includePaths 
+   * @param {FileInterface} fileInterface 
+   */
+  constructor(fileSlice, includePaths, fileInterface) {
+    var combined = processInclude(discardComment(fileSlice), includePaths, fileInterface);
+
+    this.input = combined.value;
     this.lexer = new PreprocessLexer(this.input);
     this.look = null;
     this.includes = [];
+    this.errors = combined.errors;
     this.warnings = [];
-    this.defines = new Map();
+    this.macros = new Map();
 
     this.move();
   }
@@ -140,27 +182,12 @@ class PreprocessParser {
     if (this.look.content == t)
       this.move();
     else
-      throw new Error();
+      throw new PreprocessError("Unexpected token.");
   }
 
   parse() {
     this.processInclude();
   }
-
-  processInclude() {
-
-  }
 }
-
-console.log(
-  processInclude(
-    FileSlice.fromFile(
-      "./preprocessor/test/a.hlcl",
-      discardComment(fs.readFileSync("./preprocessor/test/a.hlcl", "utf-8")),
-      0
-    )
-    , ["./preprocessor/test"]
-  ) + ""
-)
 
 module.exports = PreprocessParser;

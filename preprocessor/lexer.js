@@ -2,19 +2,44 @@ const FileSlice = require("./slice.js");
 
 class PreprocessToken {
   static Type = {
-    Token: 0,
-    Word: 1,
-    Hash: 2,
-    String: 3
+    TOKEN: 0,
+    WORD: 1,
+    HASH: 2,
+    STRING: 3
   };
 
-  constructor(type, content, begin, end, file, line) {
+  /**
+   * @param {number} type 
+   * @param {string} content 
+   * @param {number} begin 
+   * @param {number} end 
+   * @param {FileSlice} fileSlice 
+   * @param {number} line 
+   * @param {number} column 
+   * @param {boolean} first 
+   */
+  constructor(type, content, begin, end, fileSlice, line, column, first) {
+    /** Token type. */
     this.type = type;
+
+    /** Token string. */
     this.content = content;
+
+    /** Begin position in file. */
     this.begin = begin;
+    /** End position in file. */
     this.end = end;
+
+    /** File name. */
+    this.fileName = fileSlice.file;
+    /** FileSlice object the token from. */
+    this.fileSlice = fileSlice;
+    /** Line number in the complete file. */
     this.line = line;
-    this.file = file;
+    /** Column number in the line. */
+    this.column = column;
+    /** The first token in the line. */
+    this.first = !!first;
   }
 
   toString() {
@@ -38,23 +63,31 @@ class PreprocessLexer {
     this.currentFile = input;
     // Convert input to an char array, in order to support unicode.
     this.string = Array.from(this.currentFile.content);
-    this.line = this.offsetInLine = 0;
+    this.line = this.column = this.columnEnd = 0;
     this.cursor = -1;
     this.readingVaniCmd = 0;
     this.peek = " ";
     this.begin = 0;
     this.isFirstInLine = 1;
+    this.look = void 0;
   }
 
   buildToken(type, content) {
-    return new PreprocessToken(
+    var r = new PreprocessToken(
       type,
       content,
       this.begin,
       this.begin + content.length,
-      this.currentFile.file,
-      this.line + this.currentFile.parentLine
-    )
+      this.currentFile,
+      this.line + this.currentFile.parentLine,
+      this.column,
+      this.isFirstInLine
+    );
+    // Once you build a token from this line, the next token(s) won't be the
+    // first token in the line.
+    this.isFirstInLine = 0;
+    this.look = r;
+    return r
   }
 
   done() {
@@ -78,13 +111,14 @@ class PreprocessLexer {
       // Switch to next file.
       this.currentFile = this.currentFile.next;
       this.cursor = -1;
-      this.line = this.offsetInLine = 0;
+      this.line = this.column = this.columnEnd = 0;
       this.peek = " ";
       this.string = Array.from(this.currentFile.content);
     }
 
     if (!this.done()) {
       this.cursor++;
+      this.columnEnd++;
       this.peek = this.string[this.cursor];
       if (this.peek != c)
         return false;
@@ -104,16 +138,29 @@ class PreprocessLexer {
     for (; !this.done(); this.readch()) {
       if (this.isWhitespace())
         continue;
-      else if (this.peek == "\n")
-        this.line++, this.offsetInLine = 0, this.isFirstInLine = 1;
-      else
+      else if (this.peek == "\n") {
+        this.line++;
+        // It will consider "\n" as the first element in the line because of
+        // the trailing this.readch() function, so we need to set the column
+        // counter to -1, set the character after "\n" as the first character.
+        this.columnEnd = this.column = -1;
+        this.isFirstInLine = 1
+      } else
         return;
     }
   }
 
   /**
+   * Skip current line.
+   */
+  skipLine() {
+    while (!this.peek != "\n")
+      this.readch();
+  }
+
+  /**
    * Scan next token.
-   * @returns 
+   * @returns {PreprocessToken}
    */
   scan() {
     this.skipWhitespace();
@@ -122,6 +169,7 @@ class PreprocessLexer {
 
     // Start reading, record current cursor.
     this.begin = this.cursor;
+    this.column = this.columnEnd;
 
     // Read tokens.
     switch (this.peek) {
@@ -190,7 +238,7 @@ class PreprocessLexer {
     if (this.peek == "#") {
       if (this.readch("#"))
         return this.buildToken(0, "##");
-      return this.buildToken(this.isFirstInLine ? 2 : 0, "#" + this.readStringUnquoted())
+      return this.buildToken(2, "#" + this.readStringUnquoted())
     }
     // Read vanilla Minecraft command literal.
     if (this.peek == "`" && !this.readingVaniCmd)
@@ -208,7 +256,6 @@ class PreprocessLexer {
     // Unknown token.
     var t = this.buildToken(0, this.peek);
     this.peek = " ";
-    this.isFirstInLine = 0;
     return t
   }
 
